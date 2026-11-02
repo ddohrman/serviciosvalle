@@ -1,0 +1,73 @@
+{
+  "id": "/",
+  "short_name": "Oficios Cerrillos",
+  "name": "Oficios y Servicios Valle de Lerma",
+  "description": "Red comunitaria de oficios y servicios para Cerrillos y el Valle de Lerma, Salta. Encuentra plomeros, electricistas, albañiles y profesionales de confianza con presupuestos sin cargo y WhatsApp directo.",
+  "lang": "es-AR",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1c30",
+  "theme_color": "#002b49",
+  "categories": ["business", "utilities", "productivity"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-mobile.png",
+      "sizes": "720x1280",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Oficios y Servicios Valle de Lerma en tu Móvil"
+    },
+    {
+      "src": "/screenshot-wide.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Plataforma de Profesionales del Valle de Lerma"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Explorar Prestadores",
+      "short_name": "Explorar",
+      "description": "Ver lista de profesionales verificados",
+      "url": "/?tab=explorar",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Soy Prestador",
+      "short_name": "Registro Pro",
+      "description": "Registrá tu oficio con 30 días gratis",
+      "url": "/?tab=ser-profesional",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

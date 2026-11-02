@@ -1,0 +1,511 @@
+{
+  "entities": {
+    "Professional": {
+      "title": "Professional",
+      "description": "Prestador u oficio de la comunidad del Valle de Lerma con datos de contacto, especialidades y estado de suscripción",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identificador único del profesional"
+        },
+        "name": {
+          "type": "string",
+          "description": "Nombre y apellido del prestador"
+        },
+        "avatar": {
+          "type": "string",
+          "description": "URL o foto de perfil del profesional"
+        },
+        "trade": {
+          "type": "string",
+          "description": "Oficio principal (ej. Plomero, Gasista, Electricista)"
+        },
+        "categoryId": {
+          "type": "string",
+          "description": "Identificador de categoría de oficio"
+        },
+        "neighborhood": {
+          "type": "string",
+          "description": "Localidad o barrio de cobertura principal"
+        },
+        "rating": {
+          "type": "number",
+          "description": "Calificación promedio de 1 a 5 estrellas"
+        },
+        "reviewCount": {
+          "type": "number",
+          "description": "Cantidad total de reseñas de vecinos"
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "Indica si cuenta con verificación y validación comunitaria"
+        },
+        "verifiedLabel": {
+          "type": "string",
+          "description": "Etiqueta visible de verificación (ej. Matriculado Oficial o Verificado Valle de Lerma)"
+        },
+        "availableNow": {
+          "type": "boolean",
+          "description": "Disponibilidad inmediata para atender urgencias o visitas"
+        },
+        "emergencyDuty": {
+          "type": "boolean",
+          "description": "Guardia de urgencia activa 24hs"
+        },
+        "quoteWithoutCharge": {
+          "type": "boolean",
+          "description": "Presupuesto y visita sin cargo"
+        },
+        "matricula": {
+          "type": "string",
+          "description": "Número de matrícula o credencial técnica si corresponde"
+        },
+        "certificatePhotoUrl": {
+          "type": "string",
+          "description": "Foto del carnet o certificado técnico"
+        },
+        "dniNumber": {
+          "type": "string",
+          "description": "Número de documento para validación interna"
+        },
+        "dniPhotoUrl": {
+          "type": "string",
+          "description": "Foto de DNI frente para validación del administrador"
+        },
+        "approvalStatus": {
+          "type": "string",
+          "enum": ["aprobado", "pendiente", "rechazado"],
+          "description": "Estado de moderación y aprobación comunitaria"
+        },
+        "submissionDate": {
+          "type": "string",
+          "description": "Fecha de registro del prestador"
+        },
+        "rejectionReason": {
+          "type": "string",
+          "description": "Motivo de rechazo en caso de requerir documentación adicional"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Teléfono de contacto telefónico directo"
+        },
+        "whatsappNumber": {
+          "type": "string",
+          "description": "Número para contacto rápido por WhatsApp"
+        },
+        "experienceYears": {
+          "type": "number",
+          "description": "Años de experiencia demostrable en el oficio"
+        },
+        "bio": {
+          "type": "string",
+          "description": "Presentación personal y descripción de trabajos que realiza"
+        },
+        "guaranteeText": {
+          "type": "string",
+          "description": "Detalle de garantía ofrecida (ej. Garantía escrita de 3 meses)"
+        },
+        "priceTagText": {
+          "type": "string",
+          "description": "Texto orientativo de precios o visita"
+        },
+        "username": {
+          "type": "string",
+          "description": "Nombre de usuario para iniciar sesión en la app"
+        },
+        "password": {
+          "type": "string",
+          "description": "Clave de acceso al panel de prestador"
+        },
+        "trialStartDate": {
+          "type": "string",
+          "description": "Fecha de inicio del período de prueba gratis de 30 días"
+        },
+        "trialEndDate": {
+          "type": "string",
+          "description": "Fecha de vencimiento del período de prueba gratis"
+        },
+        "trialDaysTotal": {
+          "type": "number",
+          "description": "Total de días asignados en período de prueba"
+        },
+        "trialActive": {
+          "type": "boolean",
+          "description": "Indica si el período de prueba se encuentra activo"
+        },
+        "subscriptionPlan": {
+          "type": "string",
+          "enum": ["prueba_gratuita", "abono_mensual", "abono_anual"],
+          "description": "Plan contratado por el prestador"
+        },
+        "subscriptionStatus": {
+          "type": "string",
+          "enum": ["activa", "caducada"],
+          "description": "Estado actual de la suscripción"
+        },
+        "subscriptionEndDate": {
+          "type": "string",
+          "description": "Fecha de fin del período abonado"
+        },
+        "isTrialExpired": {
+          "type": "boolean",
+          "description": "Indica si el período de prueba venció y requiere suscripción"
+        },
+        "isExample": {
+          "type": "boolean",
+          "description": "Indica si es un profesional de ejemplo demostrativo"
+        },
+        "palabrasClave": {
+          "type": "array",
+          "description": "Array de palabras clave configuradas por el prestador para búsquedas específicas (ej. caña de pescar, riles, artículos de pesca)"
+        },
+        "searchKeywords": {
+          "type": "array",
+          "description": "Palabras clave adicionales y términos de búsqueda del prestador"
+        },
+        "searchKeywordsText": {
+          "type": "string",
+          "description": "Texto sin procesar de palabras clave ingresadas separadas por comas"
+        },
+        "services": {
+          "type": "array",
+          "description": "Lista de servicios individuales y precios estimados"
+        },
+        "completedJobs": {
+          "type": "array",
+          "description": "Galería de fotos de obras o trabajos completados"
+        },
+        "reviews": {
+          "type": "array",
+          "description": "Reseñas y calificaciones dejadas por clientes"
+        }
+      },
+      "required": ["id", "name", "trade", "phone", "whatsappNumber"]
+    },
+    "ProAccount": {
+      "title": "ProAccount",
+      "description": "Credenciales y estado de cuenta del profesional para inicio de sesión",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID del documento de cuenta"
+        },
+        "username": {
+          "type": "string",
+          "description": "Nombre de usuario único para login"
+        },
+        "password": {
+          "type": "string",
+          "description": "Contraseña de acceso"
+        },
+        "proId": {
+          "type": "string",
+          "description": "ID del perfil profesional vinculado"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Fecha de creación de la cuenta"
+        },
+        "trialDaysTotal": {
+          "type": "number",
+          "description": "Días totales de prueba gratuita"
+        },
+        "trialEndDate": {
+          "type": "string",
+          "description": "Fecha límite del período de prueba"
+        },
+        "isActive": {
+          "type": "boolean",
+          "description": "Estado activo de la cuenta"
+        }
+      },
+      "required": ["username", "proId"]
+    },
+    "AppAdvertisement": {
+      "title": "AppAdvertisement",
+      "description": "Anuncio o publicidad comunitaria programada en la app",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identificador del anuncio"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Si el anuncio está activo para mostrar"
+        },
+        "title": {
+          "type": "string",
+          "description": "Título principal del anuncio"
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Subtítulo o comercio"
+        },
+        "badgeText": {
+          "type": "string",
+          "description": "Etiqueta destacada (ej. Oferta de la Semana)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Texto detallado del anuncio"
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "URL de la imagen del banner o anuncio"
+        },
+        "displayDurationSeconds": {
+          "type": "number",
+          "description": "Segundos de cuenta regresiva en el modal"
+        },
+        "buttonText": {
+          "type": "string",
+          "description": "Texto del botón de acción"
+        },
+        "targetType": {
+          "type": "string",
+          "enum": ["whatsapp", "url", "none"],
+          "description": "Tipo de destino del botón"
+        },
+        "targetUrl": {
+          "type": "string",
+          "description": "URL externa si targetType es url"
+        },
+        "targetWhatsAppNumber": {
+          "type": "string",
+          "description": "Número de WhatsApp para contacto si targetType es whatsapp"
+        },
+        "targetWhatsAppMessage": {
+          "type": "string",
+          "description": "Mensaje predeterminado de WhatsApp"
+        },
+        "daysOfWeek": {
+          "type": "array",
+          "description": "Días de la semana programados [0 a 6]"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Última fecha de actualización"
+        }
+      },
+      "required": ["id", "enabled", "title", "description"]
+    },
+    "ServiceRequest": {
+      "title": "ServiceRequest",
+      "description": "Pedido de presupuesto o solicitud de servicio creada por un vecino",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID único de la solicitud"
+        },
+        "title": {
+          "type": "string",
+          "description": "Título del trabajo requerido"
+        },
+        "trade": {
+          "type": "string",
+          "description": "Oficio requerido (ej. Electricista, Plomero)"
+        },
+        "neighborhood": {
+          "type": "string",
+          "description": "Localidad o barrio del cliente"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detalle de la necesidad o trabajo a cotizar"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Fecha y hora de creación de la solicitud"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["cotizado", "en_espera", "contratado", "completado"],
+          "description": "Estado de la solicitud de servicio"
+        },
+        "quotedBy": {
+          "type": "string",
+          "description": "Nombre del profesional que envió presupuesto"
+        },
+        "quotedByAvatar": {
+          "type": "string",
+          "description": "Avatar del profesional"
+        },
+        "quotedByTrade": {
+          "type": "string",
+          "description": "Oficio del profesional cotizante"
+        },
+        "quoteAmount": {
+          "type": "number",
+          "description": "Monto en pesos cotizado"
+        },
+        "phoneContact": {
+          "type": "string",
+          "description": "Teléfono de contacto para el trabajo"
+        },
+        "assignedWorkerId": {
+          "type": "string",
+          "description": "ID del profesional asignado o cotizante"
+        },
+        "contractNumber": {
+          "type": "string",
+          "description": "Número de orden o contrato oficial"
+        },
+        "clientName": {
+          "type": "string",
+          "description": "Nombre y barrio del vecino solicitante"
+        },
+        "completedJobPhoto": {
+          "type": "string",
+          "description": "Foto de trabajo terminado adjunta"
+        },
+        "completedJobComment": {
+          "type": "string",
+          "description": "Comentario del trabajo realizado"
+        }
+      },
+      "required": ["id", "title", "trade", "neighborhood", "description"]
+    },
+    "AppAnalytics": {
+      "title": "AppAnalytics",
+      "description": "Métricas generales de uso de la app para el administrador",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID del documento de analítica"
+        },
+        "totalClientVisits": {
+          "type": "number",
+          "description": "Total de sesiones y aperturas de la app por vecinos"
+        },
+        "uniqueClientsCount": {
+          "type": "number",
+          "description": "Cantidad de clientes y dispositivos únicos aproximados"
+        },
+        "totalWhatsAppContacts": {
+          "type": "number",
+          "description": "Total de contactos enviados a trabajadores por WhatsApp"
+        },
+        "totalRequestsCreated": {
+          "type": "number",
+          "description": "Total de pedidos de presupuestos generados"
+        },
+        "lastClientVisitAt": {
+          "type": "string",
+          "description": "Timestamp del último acceso registrado"
+        },
+        "firstRecordedAt": {
+          "type": "string",
+          "description": "Fecha de inicio del registro estadístico"
+        }
+      },
+      "required": ["totalClientVisits", "uniqueClientsCount", "totalWhatsAppContacts", "totalRequestsCreated"]
+    },
+    "DeviceAccessLog": {
+      "title": "DeviceAccessLog",
+      "description": "Registro de accesos por dispositivo único identificado, con favoritos y teléfono opcional",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID único persistente del dispositivo" },
+        "deviceId": { "type": "string", "description": "Código de identificación del dispositivo" },
+        "firstSeen": { "type": "string", "description": "Fecha y hora del primer acceso registrado" },
+        "lastSeen": { "type": "string", "description": "Fecha y hora del último acceso registrado" },
+        "visitCount": { "type": "number", "description": "Cantidad de visitas registradas" },
+        "phone": { "type": "string", "description": "Número de teléfono opcional asociado" },
+        "nickname": { "type": "string", "description": "Nombre o apodo del vecino" },
+        "neighborhood": { "type": "string", "description": "Localidad o barrio habitual" },
+        "deviceType": { "type": "string", "description": "Tipo de dispositivo (Móvil Android, iPhone, etc.)" },
+        "browser": { "type": "string", "description": "Navegador web utilizado" },
+        "screenResolution": { "type": "string", "description": "Resolución de pantalla" },
+        "platform": { "type": "string", "description": "Sistema operativo de la plataforma" },
+        "favoritesCount": { "type": "number", "description": "Cantidad de prestadores guardados en favoritos" },
+        "favoriteProIds": { "type": "array", "description": "IDs de profesionales marcados como favoritos" },
+        "lastAction": { "type": "string", "description": "Última acción o consulta realizada en la app" }
+      },
+      "required": ["id", "deviceId", "firstSeen", "lastSeen", "visitCount"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Mensaje de chat en tiempo real con respaldo y log de seguridad de 30 días",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID del mensaje" },
+        "requestId": { "type": "string", "description": "ID de la solicitud vinculada" },
+        "requestTitle": { "type": "string", "description": "Título de la solicitud" },
+        "senderId": { "type": "string", "description": "Identificador del remitente (dispositivo o prestador)" },
+        "senderName": { "type": "string", "description": "Nombre de quien envía el mensaje" },
+        "senderRole": { "type": "string", "enum": ["vecino", "prestador", "admin"], "description": "Rol del emisor" },
+        "senderAvatar": { "type": "string", "description": "Avatar o foto de perfil" },
+        "text": { "type": "string", "description": "Texto del mensaje" },
+        "createdAt": { "type": "string", "description": "Fecha y hora de envío" },
+        "expiresAt": { "type": "string", "description": "Fecha límite de resguardo por seguridad (30 días)" },
+        "securityLogHash": { "type": "string", "description": "Hash pericial de seguridad" },
+        "deviceId": { "type": "string", "description": "Identificador de dispositivo del remitente" },
+        "read": { "type": "boolean", "description": "Estado de lectura" }
+      },
+      "required": ["id", "requestId", "senderId", "senderName", "senderRole", "text", "createdAt", "expiresAt"]
+    },
+    "UserFeedback": {
+      "title": "UserFeedback",
+      "description": "Reclamos, quejas, felicitaciones y sugerencias de usuarios con identificador de dispositivo asociado",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Identificador único de reclamo o sugerencia" },
+        "type": { "type": "string", "enum": ["reclamo", "sugerencia", "felicitacion", "consulta"], "description": "Tipo de comunicación" },
+        "title": { "type": "string", "description": "Título o asunto del reclamo" },
+        "description": { "type": "string", "description": "Detalle descriptivo" },
+        "deviceId": { "type": "string", "description": "Identificador del dispositivo que envía el reclamo" },
+        "userName": { "type": "string", "description": "Nombre del usuario" },
+        "userPhone": { "type": "string", "description": "Teléfono de contacto" },
+        "userNeighborhood": { "type": "string", "description": "Localidad del vecino" },
+        "relatedRequestId": { "type": "string", "description": "ID de solicitud de trabajo relacionada si aplica" },
+        "relatedRequestTitle": { "type": "string", "description": "Título de solicitud relacionada" },
+        "relatedProId": { "type": "string", "description": "ID del prestador involucrado" },
+        "relatedProName": { "type": "string", "description": "Nombre del prestador involucrado" },
+        "status": { "type": "string", "enum": ["pendiente", "en_revision", "resuelto"], "description": "Estado de atención" },
+        "adminNotes": { "type": "string", "description": "Notas o resolución del administrador" },
+        "createdAt": { "type": "string", "description": "Fecha de emisión" },
+        "resolvedAt": { "type": "string", "description": "Fecha de resolución" }
+      },
+      "required": ["id", "type", "title", "description", "deviceId", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/professionals/{proId}": {
+      "schema": "Professional",
+      "description": "Directorio de profesionales y oficios del Valle de Lerma"
+    },
+    "/proAccounts/{accountId}": {
+      "schema": "ProAccount",
+      "description": "Cuentas y credenciales de acceso para prestadores"
+    },
+    "/advertisements/{adId}": {
+      "schema": "AppAdvertisement",
+      "description": "Publicidades y anuncios configurados por el administrador"
+    },
+    "/serviceRequests/{requestId}": {
+      "schema": "ServiceRequest",
+      "description": "Solicitudes y pedidos de presupuesto de vecinos"
+    },
+    "/analytics/{docId}": {
+      "schema": "AppAnalytics",
+      "description": "Métricas consolidadas de uso de la plataforma"
+    },
+    "/device_access_logs/{deviceId}": {
+      "schema": "DeviceAccessLog",
+      "description": "Registro de accesos y visitantes únicos por dispositivo sin necesidad de registro"
+    },
+    "/request_chat_messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Registro de chat en tiempo real y logs de seguridad conservados por 30 días"
+    },
+    "/user_feedback/{feedbackId}": {
+      "schema": "UserFeedback",
+      "description": "Reclamos y sugerencias de vecinos vinculados a su identificador de dispositivo"
+    }
+  }
+}

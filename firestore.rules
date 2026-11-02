@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Permitir lectura y escritura en publicidades
+    match /advertisements/{adId} {
+      allow read, write: if true;
+    }
+
+    // Profesionales: lectura pública de los registros para mostrar en el directorio, escritura para registro y aprobación
+    match /professionals/{proId} {
+      allow read, write: if true;
+    }
+
+    // Cuentas de prestadores (login / credenciales)
+    match /proAccounts/{accountId} {
+      allow read, write: if true;
+    }
+
+    // Pedidos de vecinos
+    match /serviceRequests/{requestId} {
+      allow read, write: if true;
+    }
+
+    // Colección de sincronización general
+    match /appConfig/{configId} {
+      allow read, write: if true;
+    }
+
+    // Estadísticas de uso y conteo para el administrador
+    match /analytics/{docId} {
+      allow read, write: if true;
+    }
+
+    // Registro de accesos y visitantes únicos por dispositivo
+    match /device_access_logs/{deviceId} {
+      allow read, write: if true;
+    }
+
+    // Chat en tiempo real y logs de seguridad de 30 días entre vecinos y prestadores
+    match /request_chat_messages/{messageId} {
+      allow read, write: if true;
+    }
+
+    // Reclamos, sugerencias y quejas de vecinos con identificador de dispositivo
+    match /user_feedback/{feedbackId} {
+      allow read, write: if true;
+    }
+  }
+}
