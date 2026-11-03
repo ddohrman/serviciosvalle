@@ -36,7 +36,8 @@ import {
   Layers,
   Package
 } from 'lucide-react';
-import { AppAnalytics, Professional, DeviceAccessLog, ChatMessage, UserFeedback, ServiceRequest } from '../types';
+import { AppAnalytics, Professional, DeviceAccessLog, ChatMessage, UserFeedback, ServiceRequest, TrialRecord } from '../types';
+import { getProSubscriptionDetails, normalizePhoneNumber, calculateCutoffDate } from '../utils/subscriptionUtils';
 import { subscribeToDeviceLogs } from '../utils/deviceTracker';
 import { subscribeToSecurityChatLogs, getRemainingSecurityDays, downloadChatsAsTextFile } from '../utils/chatService';
 import { subscribeToUserFeedbacks, updateFeedbackStatus } from '../utils/feedbackService';
@@ -47,6 +48,13 @@ interface AdminStatsDashboardProps {
   analytics: AppAnalytics;
   professionals: Professional[];
   requests?: ServiceRequest[];
+  trialRecords?: TrialRecord[];
+  onUpdateSubscription?: (
+    proId: string, 
+    plan: 'prueba_gratuita' | 'abono_mensual' | 'abono_anual', 
+    status: 'activa' | 'caducada',
+    paymentDate?: string
+  ) => void;
   onSelectFilter: (filter: 'todos' | 'prueba_activa' | 'prueba_caducada' | 'continuando_uso' | 'pendiente') => void;
   onSwitchToPrestadores: () => void;
   onOpenApkModal?: () => void;
@@ -57,6 +65,8 @@ export const AdminStatsDashboard: React.FC<AdminStatsDashboardProps> = ({
   analytics,
   professionals,
   requests = [],
+  trialRecords = [],
+  onUpdateSubscription,
   onSelectFilter,
   onSwitchToPrestadores,
   onOpenApkModal,
@@ -102,30 +112,47 @@ export const AdminStatsDashboard: React.FC<AdminStatsDashboardProps> = ({
     };
   }, []);
 
+  // Estado local para input de fechas de pago por profesional en el dashboard
+  const [dashboardPaymentDates, setDashboardPaymentDates] = useState<Record<string, string>>({});
+  const [expandedSection, setExpandedSection] = useState<'prueba' | 'abono' | 'antifraude' | null>(null);
+
   // Prestadores calculations
   const totalPros = professionals.length;
   
-  // Activos en prueba gratuita (dentro de los 30 días, no caducados y sin abono pago)
+  // Activos en prueba gratuita (dentro de los 30 días)
   const trialActivePros = professionals.filter(p => {
-    const isExpired = p.isTrialExpired || p.subscriptionStatus === 'caducada' || p.trialActive === false;
-    const isPaid = (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
-    return !isExpired && !isPaid;
+    const details = getProSubscriptionDetails(p);
+    return !details.isPaidPlan && !details.isExpired;
   });
 
-  // Prestadores con prueba gratuita caducada / vencida
+  // Prestadores con prueba gratuita caducada / vencida (Corte de acceso aplicado)
   const trialExpiredPros = professionals.filter(p => {
-    const isExpired = p.isTrialExpired || p.subscriptionStatus === 'caducada' || p.trialActive === false;
-    const isPaid = (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
-    return isExpired && !isPaid;
+    const details = getProSubscriptionDetails(p);
+    return !details.isPaidPlan && details.isExpired;
   });
 
   // Prestadores que continúan su uso con abono activo
   const continuingUsePros = professionals.filter(p => {
-    return (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
+    const details = getProSubscriptionDetails(p);
+    return details.isPaidPlan && !details.isExpired;
   });
 
-  const abonoMensualPros = professionals.filter(p => p.subscriptionPlan === 'abono_mensual' && p.subscriptionStatus === 'activa');
-  const abonoAnualPros = professionals.filter(p => p.subscriptionPlan === 'abono_anual' && p.subscriptionStatus === 'activa');
+  // Prestadores con abono mensual activo (dentro de los 30 días de su fecha de pago)
+  const abonoMensualPros = professionals.filter(p => {
+    const details = getProSubscriptionDetails(p);
+    return p.subscriptionPlan === 'abono_mensual' && !details.isExpired;
+  });
+
+  // Prestadores con abono mensual caducado / vencido (pasaron más de 30 días de su fecha de pago)
+  const abonoExpiredPros = professionals.filter(p => {
+    const details = getProSubscriptionDetails(p);
+    return p.subscriptionPlan === 'abono_mensual' && details.isExpired;
+  });
+
+  const abonoAnualPros = professionals.filter(p => {
+    const details = getProSubscriptionDetails(p);
+    return p.subscriptionPlan === 'abono_anual' && !details.isExpired;
+  });
 
   // Pendientes de revisión por el admin
   const pendingPros = professionals.filter(p => p.approvalStatus === 'pendiente');
@@ -581,6 +608,54 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
               </div>
             </div>
 
+              {/* Lista Detallada de Días Restantes de Prueba Gratuita */}
+              <div className="pt-2 border-t border-amber-200/60 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setExpandedSection(prev => prev === 'prueba' ? null : 'prueba')}
+                  className="w-full flex items-center justify-between text-xs font-bold text-[#783100] hover:text-[#5c2400] transition-colors cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Días restantes de prueba por prestador ({totalTrials})</span>
+                  </span>
+                  <span className="text-[10px] bg-amber-100 px-2 py-0.5 rounded-full font-bold">
+                    {expandedSection === 'prueba' ? 'Ocultar ▲' : 'Ver Días ▼'}
+                  </span>
+                </button>
+
+                {expandedSection === 'prueba' && (
+                  <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                    {[...trialActivePros, ...trialExpiredPros].map(p => {
+                      const details = getProSubscriptionDetails(p);
+                      return (
+                        <div key={p.id} className="p-2 bg-white rounded-xl border border-amber-200/80 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                          <div className="min-w-0">
+                            <p className="font-bold text-[#001428] truncate">{p.name}</p>
+                            <p className="text-[10px] text-gray-500">{p.trade} • {p.neighborhood} • Cel: {p.phone}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              details.isExpired 
+                                ? 'bg-red-100 text-red-900 border border-red-200' 
+                                : details.daysRemaining <= 7 
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-300' 
+                                  : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                            }`}>
+                              {details.isExpired ? 'Corte aplicado (Vencida)' : `⏳ Quedan ${details.daysRemaining} días`}
+                            </span>
+                            <span className="text-[10px] text-gray-500 font-mono">
+                              Corte: {details.cutoffDateFormatted}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Barra de progreso de la prueba */}
             <div className="pt-1 space-y-1">
               <div className="flex justify-between text-[10px] font-bold text-[#783100]">
@@ -596,7 +671,7 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
             </div>
           </div>
 
-          {/* BLOQUE B: LOS QUE CONTINÚAN SU USO (ABONO / PAGO) */}
+          {/* BLOQUE B: LOS QUE CONTINÚAN SU USO (ABONO / PAGO CON CORTE A 30 DÍAS) */}
           <div className="p-4.5 rounded-2xl bg-[#f0f9ff] border border-[#bae6fd] space-y-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -604,12 +679,12 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
                 <h5 className="font-black text-sm text-[#0c4a6e]">Continuando su Uso (Abonos)</h5>
               </div>
               <span className="text-xs font-black bg-blue-100 text-blue-900 px-2 py-0.5 rounded-full border border-blue-300">
-                {continuingUsePros.length} prestadores
+                {continuingUsePros.length} activos {abonoExpiredPros.length > 0 ? `• ${abonoExpiredPros.length} vencidos` : ''}
               </span>
             </div>
 
             <p className="text-[11px] text-[#0c4a6e]/80">
-              Prestadores que superaron la prueba y renovaron su suscripción comercial activa en la app.
+              Prestadores con cuota abonada. Corte automático a los 30 días de la fecha de pago si no renuevan.
             </p>
 
             {/* Desglose: Abono Mensual vs Anual */}
@@ -626,7 +701,7 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
                   </div>
                   <div>
                     <p className="text-xs font-bold text-blue-950">Abono Mensual Activo</p>
-                    <p className="text-[10px] text-blue-700">Renovación mes a mes</p>
+                    <p className="text-[10px] text-blue-700">Corte exacto cada 30 días</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -655,6 +730,91 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
                   <ArrowRight className="w-3.5 h-3.5 text-purple-700" />
                 </div>
               </div>
+
+              {/* Lista Detallada de Días Restantes de Abono con Registro de Fecha de Pago */}
+              <div className="pt-2 border-t border-blue-200/60 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setExpandedSection(prev => prev === 'abono' ? null : 'abono')}
+                  className="w-full flex items-center justify-between text-xs font-bold text-[#0c4a6e] hover:text-[#082f49] transition-colors cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Días restantes de servicio y registro de pago ({continuingUsePros.length + abonoExpiredPros.length})</span>
+                  </span>
+                  <span className="text-[10px] bg-blue-100 px-2 py-0.5 rounded-full font-bold">
+                    {expandedSection === 'abono' ? 'Ocultar ▲' : 'Ver y Cobrar ▼'}
+                  </span>
+                </button>
+
+                {expandedSection === 'abono' && (
+                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                    {[...continuingUsePros, ...abonoExpiredPros].map(p => {
+                      const details = getProSubscriptionDetails(p);
+                      const currentDateInput = dashboardPaymentDates[p.id] || new Date().toISOString().split('T')[0];
+
+                      return (
+                        <div key={p.id} className="p-2.5 bg-white rounded-xl border border-blue-200 text-xs space-y-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                            <div>
+                              <p className="font-bold text-[#001428]">{p.name}</p>
+                              <p className="text-[10px] text-gray-500">{p.trade} • {p.neighborhood} • Cel: {p.phone}</p>
+                            </div>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full self-start sm:self-auto ${
+                              details.isExpired 
+                                ? 'bg-red-100 text-red-900 border border-red-300' 
+                                : 'bg-blue-100 text-blue-900 border border-blue-300'
+                            }`}>
+                              {details.isExpired ? 'Corte aplicado (Vencido)' : `⏳ Quedan ${details.daysRemaining} días`}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-blue-50/70 p-2 rounded-lg">
+                            <span className="text-gray-600">
+                              Último Pago: <strong>{details.paymentDateFormatted || 'Reciente'}</strong>
+                            </span>
+                            <span className="text-blue-950 font-semibold font-mono">
+                              Próximo Corte: {details.cutoffDateFormatted}
+                            </span>
+                          </div>
+
+                          {/* Inline payment date selector & quick renewal button */}
+                          {onUpdateSubscription && (
+                            <div className="flex items-center gap-2 flex-wrap pt-1">
+                              <div className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-lg border border-gray-200">
+                                <span className="text-[10px] font-bold text-gray-600">Fecha Pago:</span>
+                                <input
+                                  type="date"
+                                  value={currentDateInput}
+                                  onChange={(e) => setDashboardPaymentDates(prev => ({ ...prev, [p.id]: e.target.value }))}
+                                  className="text-[11px] bg-transparent focus:outline-none"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => onUpdateSubscription(p.id, 'abono_mensual', 'activa', currentDateInput)}
+                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-[10px] flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <Check className="w-3 h-3" />
+                                <span>Registrar Pago (30d)</span>
+                              </button>
+                              {!details.isExpired && (
+                                <button
+                                  type="button"
+                                  onClick={() => onUpdateSubscription(p.id, 'abono_mensual', 'caducada')}
+                                  className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-800 font-bold rounded-lg text-[10px] cursor-pointer transition-colors"
+                                >
+                                  Cortar Ahora
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Tasa de fidelización comercial */}
@@ -665,6 +825,63 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
               </span>
             </div>
           </div>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* PADRÓN ANTIFRAUDE: TELÉFONOS REGISTRADOS QUE USARON LOS 30 DÍAS GRATIS */}
+        {/* ========================================================================= */}
+        <div className="p-4.5 rounded-2xl bg-gradient-to-br from-[#f8fafc] to-[#f1f5f9] border-2 border-emerald-300 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-200 pb-2.5">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                <ShieldCheck className="w-4 h-4 text-emerald-700" />
+              </div>
+              <div>
+                <h5 className="font-black text-sm text-[#001428] flex items-center gap-1.5">
+                  <span>Padrón Antifraude de Teléfonos Registrados</span>
+                  <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.2 rounded-full">
+                    {trialRecords.length} registrados
+                  </span>
+                </h5>
+                <p className="text-[11px] text-gray-600">
+                  Números de celular vinculados a un período de prueba gratuita. El sistema no les permite volver a registrarse gratis.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setExpandedSection(prev => prev === 'antifraude' ? null : 'antifraude')}
+              className="text-xs font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer self-start sm:self-auto"
+            >
+              {expandedSection === 'antifraude' ? 'Ocultar Padrón ▲' : 'Ver Padrón de Celulares ▼'}
+            </button>
+          </div>
+
+          {expandedSection === 'antifraude' && (
+            <div className="space-y-2 pt-1 animate-in fade-in duration-200">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1">
+                {trialRecords.map((rec) => (
+                  <div key={rec.id} className="p-2.5 bg-white rounded-xl border border-gray-200 text-xs space-y-1 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-[#001428] bg-gray-100 px-1.5 py-0.5 rounded text-[11px]">
+                        📱 {rec.phone}
+                      </span>
+                      <span className="text-[9px] font-black bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded uppercase">
+                        Prueba Usada
+                      </span>
+                    </div>
+                    <p className="font-bold text-[#001428] truncate">{rec.name}</p>
+                    <p className="text-[10px] text-[#9e4300] font-semibold truncate">{rec.trade}</p>
+                    <div className="text-[10px] text-gray-500 pt-1 border-t border-gray-100 flex justify-between">
+                      <span>Alta: {new Date(rec.registeredAt).toLocaleDateString('es-AR')}</span>
+                      <span>Fin: {new Date(rec.trialEndDate).toLocaleDateString('es-AR')}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Botones de acceso rápido para administrar los prestadores según su estado */}

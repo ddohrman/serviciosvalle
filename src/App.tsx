@@ -28,11 +28,17 @@ import {
   isWorkerInNeighborhood,
   isWorkerMatchingSearch
 } from './data/mockData';
-import { Professional, ServiceRequest, UserProfile, CompletedJob, ProAccount, AppAdvertisement, AppAnalytics, ServiceCategory, Neighborhood } from './types';
+import { Professional, ServiceRequest, UserProfile, CompletedJob, ProAccount, AppAdvertisement, AppAnalytics, ServiceCategory, Neighborhood, TrialRecord } from './types';
 import { CheckCircle2, Cloud, CloudCheck } from 'lucide-react';
 import { InstallPwaBanner } from './components/InstallPwaBanner';
 import { SystemVersionFooter } from './components/SystemVersionFooter';
 import { logDeviceAccess } from './utils/deviceTracker';
+import { 
+  getProSubscriptionDetails, 
+  normalizePhoneNumber, 
+  hasPhoneUsedTrial, 
+  calculateCutoffDate 
+} from './utils/subscriptionUtils';
 import { 
   seedFirestoreIfEmpty, 
   subscribeToAdvertisements, 
@@ -48,6 +54,8 @@ import {
   subscribeToNeighborhoods,
   saveNeighborhoodsToFirestore,
   subscribeToAnalytics,
+  subscribeToTrialRecords,
+  saveTrialRecordToFirestore,
   recordClientAppUsage,
   recordWhatsAppContact,
   recordServiceRequestCreated,
@@ -91,6 +99,50 @@ export default function App() {
       { proId: 'roberto-gomez', username: 'roberto', password: '123', createdAt: new Date().toISOString(), trialDaysTotal: 30 },
       { proId: 'carlos-mamani', username: 'carlos', password: '123', createdAt: new Date().toISOString(), trialDaysTotal: 30 },
       { proId: 'pro-caducado-demo', username: 'marcos.demo', password: '123', createdAt: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString(), trialDaysTotal: 30 }
+    ];
+  });
+
+  // Padrón persistente antifraude: Teléfonos y prestadores que ya usaron la prueba gratuita
+  const [trialRecords, setTrialRecords] = useState<TrialRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('oficios_trial_records');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    // Precargar con los teléfonos iniciales de los prestadores de ejemplo
+    return [
+      {
+        id: 'trial_3875123456',
+        phone: '3875123456',
+        normalizedPhone: '3875123456',
+        proId: 'roberto-gomez',
+        name: 'Roberto Gómez',
+        trade: 'Albañilería y Construcción',
+        registeredAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+        trialEndDate: new Date(Date.now() + 20 * 86400000).toISOString()
+      },
+      {
+        id: 'trial_3875987654',
+        phone: '3875987654',
+        normalizedPhone: '3875987654',
+        proId: 'carlos-mamani',
+        name: 'Carlos Mamaní',
+        trade: 'Electricidad e Iluminación',
+        registeredAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        trialEndDate: new Date(Date.now() + 25 * 86400000).toISOString()
+      },
+      {
+        id: 'trial_3874998877',
+        phone: '3874998877',
+        normalizedPhone: '3874998877',
+        proId: 'pro-caducado-demo',
+        name: 'Marcos Benítez',
+        trade: 'Albañilería',
+        registeredAt: new Date(Date.now() - 35 * 86400000).toISOString(),
+        trialEndDate: new Date(Date.now() - 5 * 86400000).toISOString()
+      }
     ];
   });
 
@@ -525,6 +577,19 @@ export default function App() {
       }
     });
 
+    // 8. Real-time sync for Trial Records (Padrón Antifraude de Teléfonos)
+    const unsubTrial = subscribeToTrialRecords((remoteRecords) => {
+      if (remoteRecords && remoteRecords.length > 0) {
+        setTrialRecords(prev => {
+          const remoteIds = new Set(remoteRecords.map(r => r.id));
+          const localOnly = prev.filter(r => !remoteIds.has(r.id));
+          const merged = [...remoteRecords, ...localOnly];
+          localStorage.setItem('oficios_trial_records', JSON.stringify(merged));
+          return merged;
+        });
+      }
+    });
+
     return () => {
       unsubAds();
       unsubPros();
@@ -533,6 +598,7 @@ export default function App() {
       unsubAnalytics();
       unsubCats();
       unsubNeighs();
+      unsubTrial();
     };
   }, []);
 
@@ -540,6 +606,24 @@ export default function App() {
   const loggedInPro = useMemo(() => {
     if (!loggedInProId) return null;
     return professionals.find(p => p.id === loggedInProId) || null;
+  }, [loggedInProId, professionals]);
+
+  // Corte automático del ingreso al cumplirse los 30 días (tanto de prueba gratis como de abono mensual)
+  useEffect(() => {
+    if (loggedInProId) {
+      const currentPro = professionals.find(p => p.id === loggedInProId);
+      if (currentPro) {
+        const details = getProSubscriptionDetails(currentPro);
+        if (details.isExpired) {
+          // Bloquear inmediatamente la sesión y desplegar el cartel de aviso de pago
+          setLoggedInProId(null);
+          localStorage.removeItem('oficios_logged_in_pro_id');
+          setTrialExpiredPro(currentPro);
+          setIsTrialExpiredModalOpen(true);
+          showToast(`Acceso bloqueado: ${details.statusLabel}. Comunicate al 3875286914.`);
+        }
+      }
+    }
   }, [loggedInProId, professionals]);
 
   // Filters and search
@@ -912,79 +996,134 @@ export default function App() {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  // Register new professional (with credentials and 30-day trial)
+  // Register new professional (with credentials, 30-day trial and anti-fraud phone verification)
   const handleRegisterProfessionalWithCredentials = (newPro: Professional, username: string, password?: string) => {
-    setProfessionals(prev => [newPro, ...prev]);
-    const newAccount: ProAccount = {
-      proId: newPro.id,
-      username: username.toLowerCase().trim(),
-      password: password || '123',
-      createdAt: new Date().toISOString(),
-      trialDaysTotal: 30
-    };
-    setProAccounts(prev => [...prev.filter(a => a.username !== newAccount.username), newAccount]);
-    setLoggedInProId(newPro.id);
-    showToast(`¡Bienvenido ${newPro.name.split(' ')[0]}! Tu cuenta fue creada y tus 30 días de prueba gratuita están activos.`);
-
-    // Sincronizar nuevo profesional y credenciales en Firebase Firestore
-    saveProfessionalToFirestore(newPro).catch(e => console.warn('Firebase pro sync error:', e));
-    saveProAccountToFirestore(newAccount).catch(e => console.warn('Firebase account sync error:', e));
-  };
-
-  const handleRegisterProfessional = (newPro: Professional) => {
-    setProfessionals(prev => [newPro, ...prev]);
-    showToast('¡Solicitud enviada! En proceso de validación y aprobación comunitaria.');
-    // Sincronizar en Firebase Firestore
-    saveProfessionalToFirestore(newPro).catch(e => console.warn('Firebase pro sync error:', e));
-  };
-
-  // Helper to determine if a professional's 30-day trial has expired and requires subscription payment
-  const isProfessionalTrialExpired = (pro: Professional): boolean => {
-    // If active paid subscription (monthly or annual), NEVER expired
-    if (
-      (pro.subscriptionPlan === 'abono_mensual' || pro.subscriptionPlan === 'abono_anual') &&
-      pro.subscriptionStatus === 'activa'
-    ) {
+    // 1. Verificación en el padrón antifraude de números de celular
+    const phoneCheck = hasPhoneUsedTrial(newPro.phone, trialRecords, professionals);
+    if (phoneCheck.used) {
+      setTrialExpiredPro(newPro);
+      setIsTrialExpiredModalOpen(true);
+      showToast(`⚠️ El celular ${newPro.phone} ya utilizó la prueba gratuita de 30 días. Contactate al 3875286914 para abonar.`);
       return false;
     }
 
-    // Explicitly marked as expired or inactive
-    if (pro.isTrialExpired || pro.subscriptionStatus === 'caducada' || pro.trialActive === false) {
-      return true;
-    }
+    const normPhone = normalizePhoneNumber(newPro.phone);
+    const proWithNorm: Professional = {
+      ...newPro,
+      phoneNormalized: normPhone,
+      trialStartDate: new Date().toISOString(),
+      trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      trialDaysTotal: 30,
+      subscriptionPlan: 'prueba_gratuita',
+      subscriptionStatus: 'activa',
+      isTrialExpired: false
+    };
 
-    // Check by trialEndDate
-    if (pro.trialEndDate && new Date(pro.trialEndDate).getTime() < Date.now()) {
-      return true;
-    }
+    setProfessionals(prev => [proWithNorm, ...prev]);
 
-    // Check by account creation date (over 30 days)
-    const matchingAcc = proAccounts.find(a => a.proId === pro.id || a.username === pro.username);
-    if (matchingAcc?.createdAt) {
-      const createdTime = new Date(matchingAcc.createdAt).getTime();
-      const daysPassed = (Date.now() - createdTime) / (1000 * 60 * 60 * 24);
-      if (daysPassed > 30) {
-        return true;
-      }
-    }
+    const newAccount: ProAccount = {
+      proId: proWithNorm.id,
+      username: username.toLowerCase().trim(),
+      password: password || '123',
+      createdAt: new Date().toISOString(),
+      trialDaysTotal: 30,
+      trialEndDate: proWithNorm.trialEndDate
+    };
 
-    if (pro.trialStartDate) {
-      const startTime = new Date(pro.trialStartDate).getTime();
-      const daysPassed = (Date.now() - startTime) / (1000 * 60 * 60 * 24);
-      if (daysPassed > 30) {
-        return true;
-      }
-    }
+    setProAccounts(prev => [...prev.filter(a => a.username !== newAccount.username), newAccount]);
+    setLoggedInProId(proWithNorm.id);
 
-    return false;
+    // Registrar en el padrón persistente de pruebas gratuitas
+    const newRecord: TrialRecord = {
+      id: `trial_${normPhone || proWithNorm.id}`,
+      phone: proWithNorm.phone,
+      normalizedPhone: normPhone,
+      proId: proWithNorm.id,
+      name: proWithNorm.name,
+      trade: proWithNorm.trade,
+      registeredAt: new Date().toISOString(),
+      trialEndDate: proWithNorm.trialEndDate || new Date(Date.now() + 30 * 86400000).toISOString(),
+      deviceId: localStorage.getItem('oficios_device_uuid') || undefined
+    };
+
+    setTrialRecords(prev => [newRecord, ...prev.filter(r => r.id !== newRecord.id)]);
+    localStorage.setItem('oficios_trial_records', JSON.stringify([newRecord, ...trialRecords]));
+
+    showToast(`¡Bienvenido ${proWithNorm.name.split(' ')[0]}! Cuenta creada. Tenés 30 días de prueba gratuita activos.`);
+
+    // Sincronizar nuevo profesional, credenciales y registro antifraude en Firebase Firestore
+    saveProfessionalToFirestore(proWithNorm).catch(e => console.warn('Firebase pro sync error:', e));
+    saveProAccountToFirestore(newAccount).catch(e => console.warn('Firebase account sync error:', e));
+    saveTrialRecordToFirestore(newRecord).catch(e => console.warn('Firebase trial record sync error:', e));
+    return true;
   };
 
-  // Admin Subscription Management: unblock provider with monthly or annual subscription after payment
+  const handleRegisterProfessional = (newPro: Professional) => {
+    // Verificación en el padrón antifraude
+    const phoneCheck = hasPhoneUsedTrial(newPro.phone, trialRecords, professionals);
+    if (phoneCheck.used) {
+      setTrialExpiredPro(newPro);
+      setIsTrialExpiredModalOpen(true);
+      showToast(`⚠️ El celular ${newPro.phone} ya utilizó la prueba gratuita de 30 días. Contactate al 3875286914 para abonar.`);
+      return false;
+    }
+
+    const normPhone = normalizePhoneNumber(newPro.phone);
+    const proWithNorm: Professional = {
+      ...newPro,
+      phoneNormalized: normPhone,
+      trialStartDate: new Date().toISOString(),
+      trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      trialDaysTotal: 30,
+      subscriptionPlan: 'prueba_gratuita',
+      subscriptionStatus: 'activa',
+      isTrialExpired: false
+    };
+
+    setProfessionals(prev => [proWithNorm, ...prev]);
+    showToast('¡Solicitud enviada! En proceso de validación y aprobación comunitaria.');
+
+    // Registrar en el padrón antifraude
+    const newRecord: TrialRecord = {
+      id: `trial_${normPhone || proWithNorm.id}`,
+      phone: proWithNorm.phone,
+      normalizedPhone: normPhone,
+      proId: proWithNorm.id,
+      name: proWithNorm.name,
+      trade: proWithNorm.trade,
+      registeredAt: new Date().toISOString(),
+      trialEndDate: proWithNorm.trialEndDate || new Date(Date.now() + 30 * 86400000).toISOString(),
+      deviceId: localStorage.getItem('oficios_device_uuid') || undefined
+    };
+
+    setTrialRecords(prev => [newRecord, ...prev.filter(r => r.id !== newRecord.id)]);
+    localStorage.setItem('oficios_trial_records', JSON.stringify([newRecord, ...trialRecords]));
+
+    // Sincronizar en Firebase Firestore
+    saveProfessionalToFirestore(proWithNorm).catch(e => console.warn('Firebase pro sync error:', e));
+    saveTrialRecordToFirestore(newRecord).catch(e => console.warn('Firebase trial record sync error:', e));
+    return true;
+  };
+
+  // Helper para determinar si el período de un profesional (prueba o abono) ha caducado
+  const isProfessionalTrialExpired = (pro: Professional): boolean => {
+    return getProSubscriptionDetails(pro).isExpired;
+  };
+
+  // Admin Subscription Management: registrar pago, fijar fecha de pago y cortar a los 30 días si no pagan
   const handleUpdateSubscription = (
     proId: string, 
     plan: 'prueba_gratuita' | 'abono_mensual' | 'abono_anual', 
-    status: 'activa' | 'caducada'
+    status: 'activa' | 'caducada',
+    paymentDate?: string
   ) => {
+    const payDate = paymentDate || new Date().toISOString().split('T')[0];
+    const validUntil = plan === 'abono_mensual' 
+      ? calculateCutoffDate(payDate, 30) 
+      : plan === 'abono_anual' 
+        ? calculateCutoffDate(payDate, 365) 
+        : calculateCutoffDate(payDate, 30);
+
     setProfessionals(prev => prev.map(p => {
       if (p.id === proId) {
         const isExpired = status === 'caducada';
@@ -993,7 +1132,9 @@ export default function App() {
           subscriptionPlan: plan,
           subscriptionStatus: status,
           isTrialExpired: isExpired,
-          trialActive: plan === 'prueba_gratuita' ? !isExpired : true
+          trialActive: plan === 'prueba_gratuita' ? !isExpired : true,
+          lastPaymentDate: payDate,
+          paymentValidUntil: validUntil
         };
         saveProfessionalToFirestore(updated).catch(e => console.warn('Sync sub error:', e));
         return updated;
@@ -1003,14 +1144,19 @@ export default function App() {
 
     const proName = professionals.find(p => p.id === proId)?.name.split(' ')[0] || 'Prestador';
     if (status === 'activa') {
-      const planText = plan === 'abono_mensual' ? 'Abono Mensual' : plan === 'abono_anual' ? 'Abono Anual' : '30 Días de Prueba';
-      showToast(`¡Ingreso permitido para ${proName}! ${planText} activado con éxito.`);
+      const validUntilFormatted = new Date(validUntil).toLocaleDateString('es-AR');
+      const planText = plan === 'abono_mensual' 
+        ? `Abono Mensual registrado el ${payDate} (corte automático el ${validUntilFormatted})` 
+        : plan === 'abono_anual' 
+          ? `Abono Anual (válido hasta el ${validUntilFormatted})` 
+          : '30 Días de Prueba';
+      showToast(`¡Ingreso habilitado para ${proName}! ${planText}.`);
     } else {
-      showToast(`Acceso bloqueado para ${proName}. Período marcado como caducado.`);
+      showToast(`Acceso bloqueado para ${proName}. Período cortado por falta de pago.`);
     }
   };
 
-  // Provider Login with 30-Day Trial Expiration Block
+  // Provider Login with Automatic 30-Day Expiration Cutoff
   const handleLoginProfessional = (user: string, pass?: string): boolean => {
     const cleanUser = user.toLowerCase().trim();
     let targetPro: Professional | undefined;
@@ -1029,11 +1175,12 @@ export default function App() {
     }
 
     if (targetPro) {
-      // Check if trial has expired and no paid subscription
-      if (isProfessionalTrialExpired(targetPro)) {
+      // Check subscription details (prueba gratuita o abono mensual con corte a 30 días)
+      const subDetails = getProSubscriptionDetails(targetPro);
+      if (subDetails.isExpired) {
         setTrialExpiredPro(targetPro);
         setIsTrialExpiredModalOpen(true);
-        showToast('Tu período de prueba ha caducado. Contactate al 3875286914 para abonar.');
+        showToast(`Tu período ha caducado (${subDetails.statusLabel}). Contactate al 3875286914 para abonar.`);
         return false;
       }
 
@@ -1315,6 +1462,7 @@ export default function App() {
             onSaveCategories={handleSaveCategories}
             onSaveNeighborhoods={handleSaveNeighborhoods}
             requests={requests}
+            trialRecords={trialRecords}
           />
         )}
 

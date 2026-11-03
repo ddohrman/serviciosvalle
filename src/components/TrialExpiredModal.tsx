@@ -29,9 +29,26 @@ export const TrialExpiredModal: React.FC<TrialExpiredModalProps> = ({
 
   const phoneContact = '3875286914';
   const proName = professional?.name || 'Prestador de Servicio';
-  const whatsappUrl = `https://wa.me/5493875286914?text=${encodeURIComponent(
-    `Hola, mi período de prueba de 30 días en Oficios y Servicios Valle de Lerma ha caducado (Prestador: ${proName}, Oficio: ${professional?.trade || 'Servicio'}). Deseo coordinar el pago del abono (mensual o anual) para que me permitan el ingreso.`
-  )}`;
+  const isPaidMonthly = professional?.subscriptionPlan === 'abono_mensual';
+  const isPaidAnnual = professional?.subscriptionPlan === 'abono_anual';
+
+  const modalTitle = isPaidMonthly
+    ? 'Tu cuota mensual de servicio ha caducado'
+    : isPaidAnnual
+      ? 'Tu abono anual de servicio ha caducado'
+      : 'Tu período de prueba ha caducado';
+
+  const modalSubtitle = isPaidMonthly
+    ? 'Se cumplieron los 30 días desde tu último pago registrado.'
+    : isPaidAnnual
+      ? 'Se cumplió el período de 365 días de tu abono anual.'
+      : 'Tu período de prueba gratuita de 30 días ha finalizado.';
+
+  const whatsappMessage = isPaidMonthly
+    ? `Hola, se cumplieron los 30 días de mi abono mensual en Oficios y Servicios Valle de Lerma (Prestador: ${proName}, Oficio: ${professional?.trade || 'Servicio'}). Deseo registrar el pago de mi nuevo mes para que me habiliten el ingreso.`
+    : `Hola, mi período de prueba de 30 días en Oficios y Servicios Valle de Lerma ha caducado (Prestador: ${proName}, Oficio: ${professional?.trade || 'Servicio'}). Deseo coordinar el pago del abono mensual para que me permitan el ingreso.`;
+
+  const whatsappUrl = `https://wa.me/5493875286914?text=${encodeURIComponent(whatsappMessage)}`;
 
   return (
     <div 
@@ -60,7 +77,7 @@ export const TrialExpiredModal: React.FC<TrialExpiredModalProps> = ({
                 Acceso Bloqueado • Período Caducado
               </span>
               <h2 id="trial-expired-title" className="text-lg sm:text-xl font-black text-white leading-tight">
-                Tu período de prueba ha caducado
+                {modalTitle}
               </h2>
             </div>
           </div>
@@ -71,11 +88,16 @@ export const TrialExpiredModal: React.FC<TrialExpiredModalProps> = ({
           {/* Main Notice Box as specified by the user */}
           <div className="p-4 rounded-xl bg-red-50 border-2 border-red-200 text-[#001428]">
             <p className="text-sm font-bold text-red-900 leading-snug">
-              Tu período de prueba gratuita de 30 días ha finalizado.
+              {modalSubtitle}
             </p>
             <p className="text-xs text-red-800 mt-1.5 leading-relaxed">
-              Para formar parte de esta comunidad deberás contactarte al <strong>3875286914</strong> y, una vez abonado, te permitiremos el ingreso.
+              Para formar parte de esta comunidad deberás contactarte al <strong>{phoneContact}</strong> y, una vez abonado, te permitiremos el ingreso.
             </p>
+            {professional?.lastPaymentDate && isPaidMonthly && (
+              <p className="text-[11px] text-red-700 mt-2 font-mono bg-white/70 p-2 rounded-lg border border-red-200">
+                Último pago registrado: <strong>{new Date(professional.lastPaymentDate).toLocaleDateString('es-AR')}</strong> (Plazo máximo de 30 días cumplido).
+              </p>
+            )}
           </div>
 
           {/* Provider Card reference if available */}

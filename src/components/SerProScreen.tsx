@@ -44,7 +44,8 @@ import {
   Layers,
   Smartphone
 } from 'lucide-react';
-import { Professional, ServiceCategory, Neighborhood, CompletedJob, AppAdvertisement, AppAnalytics, ServiceRequest } from '../types';
+import { Professional, ServiceCategory, Neighborhood, CompletedJob, AppAdvertisement, AppAnalytics, ServiceRequest, TrialRecord } from '../types';
+import { getProSubscriptionDetails, normalizePhoneNumber } from '../utils/subscriptionUtils';
 import { AdminAdvertisementConfig } from './AdminAdvertisementConfig';
 import { AdminStatsDashboard } from './AdminStatsDashboard';
 import { AdminCategoriesNeighborhoodsConfig } from './AdminCategoriesNeighborhoodsConfig';
@@ -61,6 +62,7 @@ interface SerProScreenProps {
   professionals: Professional[];
   requests?: ServiceRequest[];
   analytics?: AppAnalytics;
+  trialRecords?: TrialRecord[];
   loggedInPro?: Professional | null;
   initialView?: 'registro' | 'login' | 'panel-aprobacion';
   adminTrigger?: number;
@@ -87,7 +89,8 @@ interface SerProScreenProps {
   onUpdateSubscription?: (
     proId: string, 
     plan: 'prueba_gratuita' | 'abono_mensual' | 'abono_anual', 
-    status: 'activa' | 'caducada'
+    status: 'activa' | 'caducada',
+    paymentDate?: string
   ) => void;
   onShowExpiredModal?: (pro: Professional) => void;
   isDevAdmin?: boolean;
@@ -103,6 +106,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
   professionals,
   requests = [],
   analytics = DEFAULT_ANALYTICS,
+  trialRecords = [],
   loggedInPro,
   initialView,
   adminTrigger,
@@ -131,7 +135,9 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
   // Navigation between registration, login, profile, and approval panel
   const [activeView, setActiveView] = useState<'registro' | 'login' | 'panel-aprobacion'>(initialView || 'registro');
   const [approvalFilter, setApprovalFilter] = useState<'pendiente' | 'aprobado' | 'prueba_activa' | 'prueba_caducada' | 'continuando_uso' | 'todos'>('pendiente');
-  const [adminSubSection, setAdminSubSection] = useState<'prestadores' | 'publicidad' | 'estadisticas' | 'rubros-localidades'>('prestadores');
+  const [adminSubSection, setAdminSubSection] = useState<'prestadores' | 'publicidad' | 'estadisticas' | 'rubros-localidades' | 'antifraude'>('prestadores');
+  const [paymentDateInputs, setPaymentDateInputs] = useState<Record<string, string>>({});
+  const [antifraudeSearchQuery, setAntifraudeSearchQuery] = useState('');
 
   // Ad counts for admin sub-section badge
   const currentAds = advertisements || (advertisement ? [advertisement] : []);
@@ -269,6 +275,22 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
       return;
     }
 
+    // Verificación en el padrón antifraude: No permitir registrarse gratis con el mismo celular
+    const normPhone = normalizePhoneNumber(phone);
+    const alreadyUsed = trialRecords.find(r => r.normalizedPhone === normPhone || normalizePhoneNumber(r.phone) === normPhone);
+    const existingProWithPhone = professionals.find(p => (p.phoneNormalized || normalizePhoneNumber(p.phone)) === normPhone);
+
+    if (alreadyUsed || existingProWithPhone) {
+      const regName = alreadyUsed?.name || existingProWithPhone?.name || 'un prestador';
+      const regTrade = alreadyUsed?.trade || existingProWithPhone?.trade || 'servicio';
+      const errorMsg = `El número ${phone} ya utilizó los 30 días de prueba gratuita (${regName} - ${regTrade}). No es posible registrarse gratis nuevamente. Para abonar comunicate al 3875286914.`;
+      setRegistrationError(errorMsg);
+      if (onShowExpiredModal) {
+        onShowExpiredModal(existingProWithPhone || ({ name: regName, phone, trade: regTrade, subscriptionPlan: 'prueba_gratuita' } as any));
+      }
+      return;
+    }
+
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     const proId = `pro-${Date.now()}`;
     const now = new Date();
@@ -402,42 +424,42 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
   const pendingPros = professionals.filter(p => p.approvalStatus === 'pendiente');
   const approvedPros = professionals.filter(p => !p.approvalStatus || p.approvalStatus === 'aprobado');
 
-  // Breakdown for statistics and filters
+  // Breakdown for statistics and filters using getProSubscriptionDetails
   const trialActivePros = professionals.filter(p => {
-    const isExpired = p.isTrialExpired || p.subscriptionStatus === 'caducada' || p.trialActive === false;
-    const isPaid = (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
-    return !isExpired && !isPaid;
+    const details = getProSubscriptionDetails(p);
+    return !details.isPaidPlan && !details.isExpired;
   });
 
   const trialExpiredPros = professionals.filter(p => {
-    const isExpired = p.isTrialExpired || p.subscriptionStatus === 'caducada' || p.trialActive === false;
-    const isPaid = (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
-    return isExpired && !isPaid;
+    const details = getProSubscriptionDetails(p);
+    return !details.isPaidPlan && details.isExpired;
   });
 
   const continuingUsePros = professionals.filter(p => {
-    return (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
+    const details = getProSubscriptionDetails(p);
+    return details.isPaidPlan && !details.isExpired;
+  });
+
+  const expiredPaidPros = professionals.filter(p => {
+    const details = getProSubscriptionDetails(p);
+    return details.isPaidPlan && details.isExpired;
   });
 
   const displayedPros = professionals.filter(p => {
-    const isExpired = p.isTrialExpired || p.subscriptionStatus === 'caducada' || p.trialActive === false;
-    const isPaid = (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
-    const isTrialActive = !isExpired && !isPaid;
+    const details = getProSubscriptionDetails(p);
 
     if (approvalFilter === 'pendiente') return p.approvalStatus === 'pendiente';
     if (approvalFilter === 'aprobado') return !p.approvalStatus || p.approvalStatus === 'aprobado';
-    if (approvalFilter === 'prueba_activa') return isTrialActive;
-    if (approvalFilter === 'prueba_caducada') return isExpired && !isPaid;
-    if (approvalFilter === 'continuando_uso') return isPaid;
+    if (approvalFilter === 'prueba_activa') return !details.isPaidPlan && !details.isExpired;
+    if (approvalFilter === 'prueba_caducada') return !details.isPaidPlan && details.isExpired;
+    if (approvalFilter === 'continuando_uso') return details.isPaidPlan && !details.isExpired;
     return true;
   });
 
-  // Calculate remaining days for logged-in provider
+  // Calculate remaining days for provider using precise subscription details
   const getDaysRemaining = (pro: Professional) => {
-    if (!pro.trialEndDate) return 30;
-    const diff = new Date(pro.trialEndDate).getTime() - Date.now();
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return Math.max(0, days);
+    const details = getProSubscriptionDetails(pro);
+    return details.daysRemaining;
   };
 
   return (
@@ -1709,34 +1731,34 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
               )}
 
               {/* Cartel Exclusivo del Administrador: Descargar ZIP, APK y Guía Ubuntu */}
-              <div className="bg-gradient-to-br from-[#001428] via-[#09223a] to-[#122e4d] border border-amber-400/30 rounded-2xl p-4 sm:p-5 text-white shadow-md space-y-3.5">
-                <div className="flex items-start gap-3">
+              <div className="w-full block bg-gradient-to-br from-[#001428] via-[#09223a] to-[#122e4d] border border-amber-400/30 rounded-2xl p-4 sm:p-5 text-white shadow-md space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-start gap-3 w-full">
                   <div className="w-10 h-10 rounded-xl bg-amber-400 text-[#001428] flex items-center justify-center font-bold shrink-0 shadow-xs">
                     <Download className="w-5 h-5" />
                   </div>
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 w-full">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="text-sm font-black text-white">
                         Descarga de Código Fuente, APK y Despliegue en Servidor
                       </h3>
                       <span className="text-[10px] bg-amber-400 text-[#001428] font-black px-2 py-0.5 rounded-full shadow-2xs shrink-0">
-                        ZIP 2.48 MB
+                        ZIP 2.58 MB
                       </span>
                       <span className="text-[10px] bg-emerald-500 text-white font-black px-2 py-0.5 rounded-full shadow-2xs shrink-0">
                         APK Android
                       </span>
                     </div>
-                    <p className="text-xs text-[#d3e4fe] mt-1 leading-relaxed">
-                      Descargá el archivo completo con el código fuente (.zip), el instalador directo para celulares Android (.apk) o consultá la configuración de Docker y Nginx para tu servidor Linux.
+                    <p className="text-xs text-[#d3e4fe] mt-1.5 leading-relaxed whitespace-normal break-words">
+                      Descargá el archivo completo con el código fuente (.zip), el instalador directo para celulares Android (.apk) o consultá la configuración paso a paso con los comandos para tu servidor Linux Ubuntu con Nginx.
                     </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-white/10">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-white/10 w-full">
                   <a
                     href="/oficios-valle-de-lerma.zip"
                     download="oficios-valle-de-lerma.zip"
-                    className="py-2.5 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-[#001428] text-xs font-black rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm border border-amber-300 text-center"
+                    className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-[#001428] text-xs font-black rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm border border-amber-300 text-center min-h-[42px]"
                     title="Descargar paquete ZIP con todos los archivos del proyecto y Docker"
                   >
                     <Download className="w-4 h-4 text-[#001428] shrink-0" />
@@ -1831,8 +1853,8 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                   </p>
                 </div>
 
-                {/* Sub-section Switcher Tabs: Grid de doble línea responsivo que nunca se desborda del margen */}
-                <div className="w-full mb-3 p-1.5 bg-gray-100/90 rounded-2xl border border-gray-200/80 grid grid-cols-2 md:grid-cols-4 gap-1.5">
+                {/* Sub-section Switcher Tabs: Grid responsivo que nunca se desborda del margen */}
+                <div className="w-full mb-3 p-1.5 bg-gray-100/90 rounded-2xl border border-gray-200/80 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5">
                   <button
                     type="button"
                     onClick={() => setAdminSubSection('estadisticas')}
@@ -1843,7 +1865,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                     }`}
                   >
                     <BarChart3 className="w-4 h-4 text-blue-400 shrink-0" />
-                    <span className="leading-tight">Estadísticas y Logs</span>
+                    <span className="leading-tight">Estadísticas</span>
                   </button>
 
                   <button
@@ -1868,6 +1890,21 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
 
                   <button
                     type="button"
+                    onClick={() => setAdminSubSection('antifraude')}
+                    className={`w-full py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer text-center ${
+                      adminSubSection === 'antifraude'
+                        ? 'bg-emerald-800 text-white shadow-xs'
+                        : 'text-[#5a5f67] hover:text-[#001428] hover:bg-white/60'
+                    }`}
+                  >
+                    <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="leading-tight">
+                      Antifraude ({trialRecords.length})
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => setAdminSubSection('publicidad')}
                     className={`w-full py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer text-center ${
                       adminSubSection === 'publicidad'
@@ -1877,7 +1914,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                   >
                     <Megaphone className="w-4 h-4 text-orange-200 shrink-0" />
                     <span className="leading-tight">
-                      Publicidades
+                      Publicidad
                       {activeAdsTodayCount > 0 ? (
                         <span className="ml-1 bg-emerald-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full inline-block">
                           {activeAdsTodayCount} hoy
@@ -1893,14 +1930,14 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => setAdminSubSection('rubros-localidades')}
-                    className={`w-full py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer text-center ${
+                    className={`w-full py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer text-center col-span-2 sm:col-span-1 ${
                       adminSubSection === 'rubros-localidades'
                         ? 'bg-amber-400 text-[#001428] shadow-xs'
                         : 'text-[#5a5f67] hover:text-[#001428] hover:bg-white/60'
                     }`}
                   >
                     <ListFilter className="w-4 h-4 text-amber-700 shrink-0" />
-                    <span className="leading-tight">Servicios y Localidades</span>
+                    <span className="leading-tight">Rubros</span>
                   </button>
                 </div>
 
@@ -2017,11 +2054,14 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
               </div>
 
               {/* RENDER CONTENT BASED ON SUB-SECTION */}
+              {/* RENDER CONTENT BASED ON SUB-SECTION */}
               {adminSubSection === 'estadisticas' && (
                 <AdminStatsDashboard
                   analytics={analytics}
                   professionals={professionals}
                   requests={requests}
+                  trialRecords={trialRecords}
+                  onUpdateSubscription={onUpdateSubscription}
                   onSelectFilter={(fil) => {
                     setApprovalFilter(fil);
                     setAdminSubSection('prestadores');
@@ -2030,6 +2070,86 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                   onOpenApkModal={() => setIsApkModalOpen(true)}
                   onOpenDockerModal={() => setIsDockerModalOpen(true)}
                 />
+              )}
+
+              {adminSubSection === 'antifraude' && (
+                <div className="bg-white p-5 rounded-2xl border border-[#e2e8f0] shadow-xs space-y-4 animate-in fade-in duration-200">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#f1f5f9] pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                        <ShieldCheck className="w-5 h-5 text-emerald-700" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-black text-[#001428]">
+                            Padrón Antifraude de Teléfonos Registrados
+                          </h4>
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            {trialRecords.length} celulares
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#5a5f67]">
+                          Registro persistente en la nube de prestadores que ya utilizaron la prueba gratuita de 30 días
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-950 space-y-1">
+                    <p className="font-bold flex items-center gap-1.5 text-amber-900">
+                      <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+                      <span>Protección de Ingreso y Control de Prueba Gratuita:</span>
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-amber-900/90">
+                      Cuando un prestador se registra por primera vez, su número de celular normalizado queda grabado en este padrón y en Firestore. Si intenta registrarse de nuevo con el mismo celular (aunque cambie el nombre de usuario o borre los datos de su celular), el sistema <strong>bloquea automáticamente la creación de cuenta gratuita</strong> y le informa que debe comunicarse al <strong>3875286914</strong> para abonar.
+                    </p>
+                  </div>
+
+                  {/* Buscador de Teléfonos */}
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      placeholder="Buscar por número de celular, prestador u oficio..."
+                      value={antifraudeSearchQuery}
+                      onChange={(e) => setAntifraudeSearchQuery(e.target.value)}
+                      className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-emerald-600 bg-gray-50"
+                    />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-96 overflow-y-auto pr-1">
+                      {trialRecords
+                        .filter(r => {
+                          if (!antifraudeSearchQuery.trim()) return true;
+                          const q = antifraudeSearchQuery.toLowerCase();
+                          return (
+                            r.phone.includes(q) ||
+                            r.normalizedPhone.includes(q) ||
+                            r.name.toLowerCase().includes(q) ||
+                            r.trade.toLowerCase().includes(q)
+                          );
+                        })
+                        .map(rec => (
+                          <div key={rec.id} className="p-3 bg-gray-50/80 rounded-xl border border-gray-200 text-xs space-y-1.5 shadow-2xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono font-bold text-[#001428] bg-white px-2 py-0.5 rounded border border-gray-200 text-[11px]">
+                                📱 {rec.phone}
+                              </span>
+                              <span className="text-[9px] font-black bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded-full border border-emerald-200 uppercase">
+                                Prueba Usada
+                              </span>
+                            </div>
+                            <div>
+                              <p className="font-bold text-[#001428] truncate">{rec.name}</p>
+                              <p className="text-[10px] text-[#9e4300] font-semibold truncate">{rec.trade}</p>
+                            </div>
+                            <div className="text-[10px] text-gray-500 pt-1 border-t border-gray-200 flex justify-between">
+                              <span>Alta: {new Date(rec.registeredAt).toLocaleDateString('es-AR')}</span>
+                              <span>Vence: {new Date(rec.trialEndDate).toLocaleDateString('es-AR')}</span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </div>
               )}
 
               {adminSubSection === 'publicidad' && onTestAdvertisement && (
@@ -2065,9 +2185,8 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
               ) : (
                 <div className="space-y-4">
                   {displayedPros.map((pro) => {
-                    const isExpired = pro.isTrialExpired || pro.subscriptionStatus === 'caducada' || pro.trialActive === false;
-                    const isMonthly = pro.subscriptionPlan === 'abono_mensual' && pro.subscriptionStatus === 'activa';
-                    const isAnnual = pro.subscriptionPlan === 'abono_anual' && pro.subscriptionStatus === 'activa';
+                    const sub = getProSubscriptionDetails(pro);
+                    const proPaymentDate = paymentDateInputs[pro.id] || new Date().toISOString().split('T')[0];
 
                     return (
                       <div key={pro.id} className="bg-white rounded-2xl border border-[#e2e8f0] p-5 shadow-xs space-y-3">
@@ -2097,26 +2216,31 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                             </div>
                           </div>
 
-                          {/* Status Badge */}
+                          {/* Status Badge with Exact Days Remaining */}
                           <div className="shrink-0">
-                            {isExpired ? (
-                              <span className="text-[10px] bg-red-100 text-red-800 font-bold px-2 py-0.5 rounded-full border border-red-300 flex items-center gap-1">
-                                <AlertTriangle className="w-3 h-3 text-red-600" />
-                                <span>Prueba Caducada</span>
+                            {sub.isExpired ? (
+                              <span className="text-[10px] bg-red-100 text-red-900 font-bold px-2.5 py-1 rounded-full border border-red-300 flex items-center gap-1 shadow-2xs">
+                                <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
+                                <span>{sub.isPaidPlan ? 'Abono Vencido (Corte)' : 'Prueba Caducada (Corte)'}</span>
                               </span>
-                            ) : isMonthly ? (
-                              <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full border border-blue-300 flex items-center gap-1">
-                                <Check className="w-3 h-3 text-blue-600" />
-                                <span>Abono Mensual</span>
+                            ) : sub.plan === 'abono_mensual' ? (
+                              <span className="text-[10px] bg-blue-100 text-blue-900 font-bold px-2.5 py-1 rounded-full border border-blue-300 flex items-center gap-1 shadow-2xs">
+                                <Check className="w-3.5 h-3.5 text-blue-700" />
+                                <span>Abono: Quedan {sub.daysRemaining}d</span>
                               </span>
-                            ) : isAnnual ? (
-                              <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded-full border border-purple-300 flex items-center gap-1">
-                                <Sparkles className="w-3 h-3 text-purple-600" />
-                                <span>Abono Anual</span>
+                            ) : sub.plan === 'abono_anual' ? (
+                              <span className="text-[10px] bg-purple-100 text-purple-900 font-bold px-2.5 py-1 rounded-full border border-purple-300 flex items-center gap-1 shadow-2xs">
+                                <Sparkles className="w-3.5 h-3.5 text-purple-700" />
+                                <span>Anual: Quedan {sub.daysRemaining}d</span>
                               </span>
                             ) : (
-                              <span className="text-[10px] bg-[#ffdbcb] text-[#783100] font-bold px-2 py-0.5 rounded-full border border-[#ffb68f]">
-                                30 Días Gratis
+                              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border flex items-center gap-1 shadow-2xs ${
+                                sub.daysRemaining <= 7 
+                                  ? 'bg-amber-100 text-amber-900 border-amber-300' 
+                                  : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                              }`}>
+                                <Clock className="w-3.5 h-3.5 text-emerald-700" />
+                                <span>Prueba: Quedan {sub.daysRemaining}d</span>
                               </span>
                             )}
                           </div>
@@ -2180,82 +2304,103 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                         )}
 
                         {/* Subscription details & Admin Actions */}
-                        <div className="pt-3 border-t border-[#f1f5f9] bg-[#f8faff] -mx-5 -mb-5 p-4 rounded-b-2xl">
+                        <div className="pt-3 border-t border-[#f1f5f9] bg-[#f8faff] -mx-5 -mb-5 p-4 rounded-b-2xl space-y-2.5">
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div className="text-xs">
-                              <p className="font-bold text-[#001428]">
-                                Estado de Ingreso: {isExpired ? (
-                                  <span className="text-red-600">🔴 Bloqueado (Debe comunicarse al 3875286914)</span>
+                            <div className="text-xs space-y-0.5">
+                              <p className="font-bold text-[#001428] flex items-center gap-1.5">
+                                <span>Estado de Ingreso:</span>
+                                {sub.isExpired ? (
+                                  <span className="text-red-700 bg-red-100 px-2 py-0.5 rounded-full font-black border border-red-300">
+                                    🔴 Cortado / Caducado (Debe contactar al 3875286914)
+                                  </span>
                                 ) : (
-                                  <span className="text-emerald-700 font-semibold">🟢 Permitido</span>
+                                  <span className="text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full font-black border border-emerald-300">
+                                    🟢 Permitido (Activo)
+                                  </span>
                                 )}
                               </p>
-                              <p className="text-[11px] text-[#43474d] mt-0.5">
-                                Cuando el prestador pague su abono, habilitá su ingreso aquí:
+                              <p className="text-[11px] text-[#43474d]">
+                                {sub.statusLabel} • Fecha límite de corte: <strong>{sub.cutoffDateFormatted}</strong>
                               </p>
-                            </div>
-
-                            {/* Action Buttons for the Admin */}
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {onUpdateSubscription && (
-                                <>
-                                  {/* Permitir Abono Mensual */}
-                                  <button
-                                    type="button"
-                                    onClick={() => onUpdateSubscription(pro.id, 'abono_mensual', 'activa')}
-                                    className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
-                                    title="El prestador abonó el mes: permitir ingreso"
-                                  >
-                                    <Check className="w-3 h-3" />
-                                    <span>Habilitar Mensual</span>
-                                  </button>
-
-                                  {/* Permitir Abono Anual */}
-                                  <button
-                                    type="button"
-                                    onClick={() => onUpdateSubscription(pro.id, 'abono_anual', 'activa')}
-                                    className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
-                                    title="El prestador abonó el año: permitir ingreso"
-                                  >
-                                    <Sparkles className="w-3 h-3" />
-                                    <span>Habilitar Anual</span>
-                                  </button>
-
-                                  {/* Forzar/Simular Caducidad */}
-                                  {!isExpired ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => onUpdateSubscription(pro.id, 'prueba_gratuita', 'caducada')}
-                                      className="px-2 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
-                                      title="Bloquear ingreso simulando caducidad de prueba"
-                                    >
-                                      Bloquear (Caducar)
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => onUpdateSubscription(pro.id, 'prueba_gratuita', 'activa')}
-                                      className="px-2 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
-                                      title="Dar 30 días de prueba gratuita"
-                                    >
-                                      Reiniciar 30 días
-                                    </button>
-                                  )}
-                                </>
+                              {pro.lastPaymentDate && (
+                                <p className="text-[10px] text-blue-900 font-mono">
+                                  Último pago registrado: {pro.lastPaymentDate}
+                                </p>
                               )}
+                            </div>
+                          </div>
 
-                              {/* Preview cartel directly */}
-                              {onShowExpiredModal && (
+                          {/* Control de Fecha de Pago y Acciones para el Administrador */}
+                          <div className="pt-2 border-t border-gray-200/80 flex flex-wrap items-center justify-between gap-2">
+                            {onUpdateSubscription && (
+                              <div className="flex items-center gap-2 flex-wrap w-full">
+                                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-gray-300 text-xs shadow-2xs">
+                                  <Calendar className="w-3.5 h-3.5 text-[#9e4300]" />
+                                  <span className="text-[11px] font-bold text-gray-700">Fecha de Pago:</span>
+                                  <input
+                                    type="date"
+                                    value={proPaymentDate}
+                                    onChange={(e) => setPaymentDateInputs(prev => ({ ...prev, [pro.id]: e.target.value }))}
+                                    className="text-xs bg-transparent focus:outline-none font-medium text-[#001428]"
+                                  />
+                                </div>
+
+                                {/* Registrar Abono Mensual */}
                                 <button
                                   type="button"
-                                  onClick={() => onShowExpiredModal(pro)}
-                                  className="px-2 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 text-[11px] font-semibold rounded-lg cursor-pointer"
-                                  title="Ver cómo ve el prestador el cartel de contacto al 3875286914"
+                                  onClick={() => onUpdateSubscription(pro.id, 'abono_mensual', 'activa', proPaymentDate)}
+                                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
+                                  title="Registrar pago: activa el servicio y se cortará automáticamente a los 30 días"
                                 >
-                                  Ver Cartel
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Registrar Pago Mensual (30d)</span>
                                 </button>
-                              )}
-                            </div>
+
+                                {/* Registrar Abono Anual */}
+                                <button
+                                  type="button"
+                                  onClick={() => onUpdateSubscription(pro.id, 'abono_anual', 'activa', proPaymentDate)}
+                                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
+                                  title="Registrar pago anual (365 días)"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  <span>Registrar Anual</span>
+                                </button>
+
+                                {/* Cortar o Caducar Ingreso */}
+                                {!sub.isExpired ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateSubscription(pro.id, pro.subscriptionPlan || 'prueba_gratuita', 'caducada')}
+                                    className="px-2.5 py-1.5 bg-red-100 hover:bg-red-200 text-red-800 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                                    title="Cortar el ingreso inmediatamente por falta de pago"
+                                  >
+                                    Cortar Acceso (Caducar)
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateSubscription(pro.id, 'prueba_gratuita', 'activa', proPaymentDate)}
+                                    className="px-2.5 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                                    title="Dar 30 días de prueba gratuita adicionales"
+                                  >
+                                    Reiniciar 30 días
+                                  </button>
+                                )}
+
+                                {/* Preview cartel directly */}
+                                {onShowExpiredModal && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onShowExpiredModal(pro)}
+                                    className="px-2.5 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-semibold rounded-xl cursor-pointer ml-auto"
+                                    title="Ver cómo ve el prestador el cartel de contacto al 3875286914"
+                                  >
+                                    Ver Cartel
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

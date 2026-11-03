@@ -12,7 +12,7 @@ import {
   onSnapshot, 
   writeBatch
 } from 'firebase/firestore';
-import { AppAdvertisement, Professional, ProAccount, AppAnalytics, ServiceRequest, ServiceCategory, Neighborhood } from '../types';
+import { AppAdvertisement, Professional, ProAccount, AppAnalytics, ServiceRequest, ServiceCategory, Neighborhood, TrialRecord } from '../types';
 import { DEFAULT_ADVERTISEMENTS, INITIAL_PROFESSIONALS, INITIAL_ACCOUNTS, INITIAL_REQUESTS, INITIAL_FEEDBACKS, INITIAL_CHAT_LOGS } from '../data/mockData';
 import firebaseConfigRaw from '../../firebase-applet-config.json';
 
@@ -665,4 +665,63 @@ export async function saveNeighborhoodsToFirestore(neighborhoods: Neighborhood[]
     handleFirestoreError(err, OperationType.WRITE, `${CONFIG_COLLECTION}/${NEIGHBORHOODS_DOC_ID}`);
   }
 }
+
+export const TRIAL_RECORDS_COLLECTION = 'trialRecords';
+
+/**
+ * Guarda o actualiza un registro de período de prueba y número de teléfono en Firestore
+ * para evitar registros gratuitos duplicados (padrón antifraude).
+ */
+export async function saveTrialRecordToFirestore(record: TrialRecord): Promise<void> {
+  try {
+    const docRef = doc(db, TRIAL_RECORDS_COLLECTION, record.id);
+    await setDoc(docRef, record, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `${TRIAL_RECORDS_COLLECTION}/${record.id}`);
+  }
+}
+
+/**
+ * Escucha en tiempo real el padrón de números de teléfono y períodos de prueba registrados
+ */
+export function subscribeToTrialRecords(
+  callback: (records: TrialRecord[]) => void
+): () => void {
+  try {
+    const colRef = collection(db, TRIAL_RECORDS_COLLECTION);
+    const unsubscribe = onSnapshot(colRef, (snapshot) => {
+      const records: TrialRecord[] = [];
+      snapshot.forEach((docSnap) => {
+        records.push(docSnap.data() as TrialRecord);
+      });
+      callback(records);
+    }, (err) => {
+      console.warn('Trial records listener warning:', err);
+    });
+
+    return unsubscribe;
+  } catch (err) {
+    console.error('Failed to subscribe to trial records:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Obtiene todos los registros del padrón de pruebas gratuitas
+ */
+export async function getTrialRecordsFromFirestore(): Promise<TrialRecord[]> {
+  try {
+    const colRef = collection(db, TRIAL_RECORDS_COLLECTION);
+    const snapshot = await getDocs(colRef);
+    const records: TrialRecord[] = [];
+    snapshot.forEach((docSnap) => {
+      records.push(docSnap.data() as TrialRecord);
+    });
+    return records;
+  } catch (err) {
+    console.warn('Error reading trial records from firestore:', err);
+    return [];
+  }
+}
+
 

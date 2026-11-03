@@ -45,5 +45,10 @@ service cloud.firestore {
     match /user_feedback/{feedbackId} {
       allow read, write: if true;
     }
+
+    // Padrón antifraude de números de teléfono y registros de períodos de prueba gratuita
+    match /trialRecords/{recordId} {
+      allow read, write: if true;
+    }
   }
 }
