@@ -1708,55 +1708,58 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                 </div>
               )}
 
-              {/* Cartel Exclusivo del Administrador: Descargar ZIP y Guía Ubuntu */}
-              <div className="bg-gradient-to-r from-[#001428] via-[#09223a] to-[#122e4d] border border-[#ffdbcb]/30 rounded-2xl p-4 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
+              {/* Cartel Exclusivo del Administrador: Descargar ZIP, APK y Guía Ubuntu */}
+              <div className="bg-gradient-to-br from-[#001428] via-[#09223a] to-[#122e4d] border border-amber-400/30 rounded-2xl p-4 sm:p-5 text-white shadow-md space-y-3.5">
+                <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-amber-400 text-[#001428] flex items-center justify-center font-bold shrink-0 shadow-xs">
                     <Download className="w-5 h-5" />
                   </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 truncate">
-                      <span className="text-xs font-black text-white truncate">
-                        Descarga de Código Fuente & Despliegue en Servidor Propio
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-black text-white">
+                        Descarga de Código Fuente, APK y Despliegue en Servidor
+                      </h3>
+                      <span className="text-[10px] bg-amber-400 text-[#001428] font-black px-2 py-0.5 rounded-full shadow-2xs shrink-0">
+                        ZIP 2.48 MB
                       </span>
-                      <span className="text-[10px] bg-amber-400 text-[#001428] font-black px-1.5 py-0.2 rounded shrink-0">
-                        ZIP 2.2 MB
+                      <span className="text-[10px] bg-emerald-500 text-white font-black px-2 py-0.5 rounded-full shadow-2xs shrink-0">
+                        APK Android
                       </span>
                     </div>
-                    <p className="text-[11px] text-[#d3e4fe] mt-0.5">
-                      Descargá el archivo completo con el código fuente o leé la guía paso a paso con los comandos para tu servidor Linux Ubuntu con Nginx.
+                    <p className="text-xs text-[#d3e4fe] mt-1 leading-relaxed">
+                      Descargá el archivo completo con el código fuente (.zip), el instalador directo para celulares Android (.apk) o consultá la configuración de Docker y Nginx para tu servidor Linux.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-white/10">
                   <a
                     href="/oficios-valle-de-lerma.zip"
                     download="oficios-valle-de-lerma.zip"
-                    className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-[#001428] text-xs font-black rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-sm border border-amber-300"
+                    className="py-2.5 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-[#001428] text-xs font-black rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm border border-amber-300 text-center"
                     title="Descargar paquete ZIP con todos los archivos del proyecto y Docker"
                   >
-                    <Download className="w-4 h-4 text-[#001428]" />
+                    <Download className="w-4 h-4 text-[#001428] shrink-0" />
                     <span>Descargar ZIP (Código)</span>
                   </a>
 
                   <button
                     type="button"
                     onClick={() => setIsApkModalOpen(true)}
-                    className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-green-700 hover:from-emerald-500 hover:to-green-600 active:scale-95 text-white text-xs font-black rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-sm border border-emerald-400"
+                    className="py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-green-700 hover:from-emerald-500 hover:to-green-600 active:scale-95 text-white text-xs font-black rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm border border-emerald-400 text-center"
                     title="Descargar paquete APK instalador para celulares Android"
                   >
-                    <Smartphone className="w-4 h-4 text-emerald-200" />
+                    <Smartphone className="w-4 h-4 text-emerald-200 shrink-0" />
                     <span>Descargar APK (Android)</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setIsDockerModalOpen(true)}
-                    className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-95 text-white text-xs font-black rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-sm border border-blue-400"
+                    className="py-2.5 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-95 text-white text-xs font-black rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm border border-blue-400 text-center"
                     title="Ver docker-compose.yml y comandos para producción"
                   >
-                    <Layers className="w-4 h-4 text-blue-200" />
+                    <Layers className="w-4 h-4 text-blue-200 shrink-0" />
                     <span>Docker Compose (Producción)</span>
                   </button>
                 </div>

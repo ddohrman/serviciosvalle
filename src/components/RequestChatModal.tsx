@@ -14,7 +14,9 @@ import {
   CheckCheck,
   Calendar,
   Lock,
-  ChevronDown
+  ChevronDown,
+  DollarSign,
+  CheckCircle2
 } from 'lucide-react';
 import { ServiceRequest, Professional, ChatMessage, UserProfile } from '../types';
 import { subscribeToChatMessages, sendChatMessage, getRemainingSecurityDays } from '../utils/chatService';
@@ -27,6 +29,7 @@ interface RequestChatModalProps {
   loggedInPro?: Professional | null;
   userProfile?: UserProfile;
   onOpenReport?: (req: ServiceRequest) => void;
+  onSendQuote?: (reqId: string, quoteAmount: number, quoteNote?: string) => void;
 }
 
 const QUICK_SUGGESTIONS_VECINO = [
@@ -51,13 +54,49 @@ export const RequestChatModal: React.FC<RequestChatModalProps> = ({
   request,
   loggedInPro,
   userProfile,
-  onOpenReport
+  onOpenReport,
+  onSendQuote
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [showSecurityInfo, setShowSecurityInfo] = useState(false);
+  const [showQuoteBox, setShowQuoteBox] = useState(false);
+  const [chatQuoteAmount, setChatQuoteAmount] = useState(
+    request?.quoteAmount ? String(request.quoteAmount) : ''
+  );
+  const [chatQuoteNote, setChatQuoteNote] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const formatChatARS = (val: string | number): string => {
+    if (val === '' || val === null || val === undefined) return '$ 0,00';
+    const num = typeof val === 'number' ? val : parseFloat(String(val).replace(',', '.'));
+    if (isNaN(num)) return '$ 0,00';
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(num);
+  };
+
+  const parsedChatQuote = parseFloat(String(chatQuoteAmount).replace(',', '.')) || 0;
+
+  const handleChatSubmitQuote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!request || !onSendQuote) return;
+    const amount = parseFloat(String(chatQuoteAmount).replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) return;
+    const rounded = Math.round(amount * 100) / 100;
+
+    onSendQuote(request.id, rounded, chatQuoteNote.trim() || undefined);
+    setShowQuoteBox(false);
+
+    // Send a message notifying about the quote
+    await handleSendMessage(
+      `📋 Presupuesto formal enviado: ${formatChatARS(rounded)} ARS${chatQuoteNote.trim() ? ` (${chatQuoteNote.trim()})` : ''}. Podés aceptarlo para iniciar el trabajo con garantía de trazabilidad.`
+    );
+  };
 
   // Determinar identidad y rol del usuario actual
   const isProvider = Boolean(loggedInPro);
@@ -239,17 +278,103 @@ export const RequestChatModal: React.FC<RequestChatModalProps> = ({
         )}
 
         {/* Resumen del pedido en cabecera */}
-        <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs text-slate-600 shrink-0">
-          <div className="truncate">
+        <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs text-slate-600 shrink-0 flex-wrap gap-2">
+          <div className="truncate min-w-0">
             <span className="text-[10px] uppercase font-bold text-[#9e4300] block">Solicitud Vinculada</span>
             <span className="font-bold text-slate-800 truncate block">{request.title}</span>
           </div>
-          {request.quoteAmount && (
-            <span className="text-xs font-black text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg shrink-0 ml-2">
-              Cotizado: ${request.quoteAmount.toLocaleString('es-AR')}
-            </span>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {request.quoteAmount && (
+              <span className="text-xs font-black text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg shrink-0">
+                Cotizado: ${request.quoteAmount.toLocaleString('es-AR')}
+              </span>
+            )}
+            {onSendQuote && isProvider && (
+              <button
+                type="button"
+                onClick={() => setShowQuoteBox(!showQuoteBox)}
+                className="px-2.5 py-1 bg-[#9e4300] hover:bg-[#853900] active:scale-95 text-white text-[11px] font-bold rounded-lg flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+              >
+                <DollarSign className="w-3.5 h-3.5" />
+                <span>{request.quoteAmount ? 'Modificar Monto' : 'Cargar Presupuesto'}</span>
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Panel Desplegable para Cargar o Modificar Presupuesto en el Chat */}
+        {showQuoteBox && (
+          <form onSubmit={handleChatSubmitQuote} className="p-3 bg-amber-50/90 border-b border-amber-300 space-y-2.5 shrink-0 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-amber-950 flex items-center gap-1">
+                <DollarSign className="w-4 h-4 text-[#9e4300]" />
+                Monto estimado de mano de obra / trabajo ($ ARS):
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowQuoteBox(false)}
+                className="text-xs text-slate-500 hover:text-slate-800 font-bold cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-2.5 text-slate-400 font-bold text-sm">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={chatQuoteAmount}
+                    onChange={(e) => setChatQuoteAmount(e.target.value)}
+                    placeholder="0.00 (ej: 25000 o 25400.50)"
+                    className="w-full text-sm font-bold pl-7 pr-3 py-2 rounded-xl border border-amber-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#9e4300] font-mono"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={parsedChatQuote <= 0}
+                  className="px-4 py-2 bg-[#9e4300] hover:bg-[#853900] active:scale-95 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Confirmar e Informar</span>
+                </button>
+              </div>
+
+              {/* Formateador ARS en tiempo real */}
+              {parsedChatQuote > 0 && (
+                <div className="p-2 bg-emerald-50 rounded-lg border border-emerald-300 flex items-center justify-between text-xs animate-in fade-in">
+                  <span className="text-emerald-900 font-semibold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    Monto formateado en pesos:
+                  </span>
+                  <span className="font-bold text-emerald-950 font-mono">
+                    {formatChatARS(chatQuoteAmount)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Presets rápidos */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-1">
+              <span className="text-[10px] text-amber-900 font-bold">Valores rápidos:</span>
+              {[15000, 25000, 40000, 60000, 90000, 150000].map(val => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setChatQuoteAmount(val.toString())}
+                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-amber-950 border border-amber-300 hover:bg-orange-100 cursor-pointer"
+                >
+                  ${(val / 1000).toFixed(0)}k
+                </button>
+              ))}
+            </div>
+          </form>
+        )}
 
         {/* Lista de Mensajes en Tiempo Real */}
         <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 bg-[#f8fafc]">

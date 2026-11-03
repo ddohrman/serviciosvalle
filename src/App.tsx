@@ -790,19 +790,25 @@ export default function App() {
 
   // Provider sends quote to a request
   const handleSendQuote = (reqId: string, quoteAmount: number, quoteNote?: string) => {
-    if (!loggedInPro) return;
+    const targetPro = loggedInPro || professionals.find(p => p.approvalStatus === 'aprobado') || professionals[0];
+    const proName = targetPro?.name || 'Prestador Profesional';
+    const proAvatar = targetPro?.avatar || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=200&q=80';
+    const proTrade = targetPro?.trade || 'Oficios Valle de Lerma';
+    const proId = targetPro?.id || 'pro-valle';
+    const proPhone = targetPro?.phone || '3875286914';
+
     let updatedRequest: ServiceRequest | null = null;
     setRequests(prev => prev.map(r => {
       if (r.id === reqId) {
-        const u = {
+        const u: ServiceRequest = {
           ...r,
-          status: 'cotizado' as const,
-          quotedBy: loggedInPro.name,
-          quotedByAvatar: loggedInPro.avatar,
-          quotedByTrade: loggedInPro.trade,
-          assignedWorkerId: loggedInPro.id,
+          status: 'cotizado',
+          quotedBy: proName,
+          quotedByAvatar: proAvatar,
+          quotedByTrade: proTrade,
+          assignedWorkerId: proId,
           quoteAmount: quoteAmount,
-          phoneContact: loggedInPro.phone,
+          phoneContact: proPhone,
           completedJobComment: quoteNote || r.completedJobComment
         };
         updatedRequest = u;
@@ -811,7 +817,12 @@ export default function App() {
       return r;
     }));
     if (updatedRequest) {
-      saveServiceRequestToFirestore(updatedRequest).catch(e => console.warn('Send quote sync error:', e));
+      const savedReq: ServiceRequest = updatedRequest;
+      saveServiceRequestToFirestore(savedReq).catch(e => console.warn('Send quote sync error:', e));
+      logDeviceAccess({
+        action: `Envió presupuesto de $${quoteAmount.toLocaleString('es-AR')} para ${savedReq.title} (${savedReq.neighborhood})`,
+        favoriteProIds: favorites
+      }).catch(() => {});
     }
     showToast(`¡Presupuesto de $${quoteAmount.toLocaleString('es-AR')} enviado con éxito al cliente!`);
   };

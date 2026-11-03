@@ -80,6 +80,25 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
   const [quoteAmountInput, setQuoteAmountInput] = useState<string>('');
   const [quoteNoteInput, setQuoteNoteInput] = useState<string>('');
 
+  // Formateador de moneda Pesos Argentinos (ARS) en tiempo real con soporte de centavos
+  const formatARS = (val: string | number): string => {
+    if (val === '' || val === null || val === undefined) return '$ 0,00';
+    const num = typeof val === 'number' ? val : parseFloat(String(val).replace(',', '.'));
+    if (isNaN(num)) return '$ 0,00';
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(num);
+  };
+
+  const handleSetPresetAmount = (preset: number) => {
+    setQuoteAmountInput(preset.toString());
+  };
+
+  const parsedQuoteAmount = parseFloat(String(quoteAmountInput).replace(',', '.')) || 0;
+
   // Real-time Chat modal state
   const [activeChatRequest, setActiveChatRequest] = useState<ServiceRequest | null>(null);
 
@@ -102,10 +121,13 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
   const handleSendQuoteSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!quotingRequest || !onSendQuote) return;
-    const amount = parseFloat(quoteAmountInput.replace(/[^0-9]/g, ''));
-    if (isNaN(amount) || amount <= 0) return;
+    const amount = parseFloat(String(quoteAmountInput).replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) {
+      return;
+    }
+    const rounded = Math.round(amount * 100) / 100;
 
-    onSendQuote(quotingRequest.id, amount, quoteNoteInput.trim() || undefined);
+    onSendQuote(quotingRequest.id, rounded, quoteNoteInput.trim() || undefined);
     setQuotingRequest(null);
     setQuoteAmountInput('');
     setQuoteNoteInput('');
@@ -487,6 +509,22 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                         >
                           <DollarSign className="w-3.5 h-3.5" />
                           <span>Enviar Presupuesto Formal</span>
+                        </button>
+                      )}
+
+                      {/* Modify Quote Button if already quoted */}
+                      {isQuotedByMe && onSendQuote && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuotingRequest(req);
+                            setQuoteAmountInput(req.quoteAmount ? req.quoteAmount.toLocaleString('es-AR') : '');
+                            setQuoteNoteInput(req.completedJobComment || '');
+                          }}
+                          className="w-full h-8 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-blue-200"
+                        >
+                          <DollarSign className="w-3.5 h-3.5" />
+                          <span>Modificar Monto Presupuestado (${req.quoteAmount?.toLocaleString('es-AR')})</span>
                         </button>
                       )}
 
@@ -903,7 +941,7 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
       {/* ========================================================================= */}
       {/* MODAL: PROVIDER SENDS QUOTE */}
       {/* ========================================================================= */}
-      {quotingRequest && loggedInPro && (
+      {quotingRequest && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div 
             className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl flex flex-col animate-in slide-in-from-bottom duration-200"
@@ -939,21 +977,82 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
               </div>
 
               <div>
-                <label className="text-xs font-bold text-[#001428] block mb-1">
-                  Monto estimado de mano de obra / trabajo ($ ARS) *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-[#001428] block">
+                    Monto estimado de mano de obra / trabajo ($ ARS) *
+                  </label>
+                  <span className="text-[10px] text-emerald-800 bg-emerald-50 border border-emerald-300 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    <span>Decimales (step='0.01')</span>
+                  </span>
+                </div>
+
                 <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-[#74777e] font-bold text-sm">$</span>
+                  <span className="absolute left-3.5 top-3 text-[#74777e] font-bold text-sm">$</span>
                   <input
                     type="number"
+                    step="0.01"
+                    min="0"
                     required
-                    min="100"
-                    step="500"
                     value={quoteAmountInput}
                     onChange={(e) => setQuoteAmountInput(e.target.value)}
-                    placeholder="Ej: 25000"
-                    className="w-full text-sm font-bold pl-8 p-2.5 rounded-xl border border-[#c3c6ce] focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
+                    placeholder="0.00 (ej: 25000 o 25400.50)"
+                    className="w-full text-base font-bold pl-8 pr-16 p-3 rounded-xl border-2 border-[#c3c6ce] focus:border-[#9e4300] focus:ring-2 focus:ring-[#ffdbcb] text-[#001428] bg-white transition-all shadow-2xs font-mono"
                   />
+                  {quoteAmountInput && (
+                    <button
+                      type="button"
+                      onClick={() => setQuoteAmountInput('')}
+                      className="absolute right-3 top-3 text-xs font-bold text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded cursor-pointer"
+                    >
+                      Borrar
+                    </button>
+                  )}
+                </div>
+
+                {/* Formateador de moneda en tiempo real (ARS) */}
+                {parsedQuoteAmount > 0 ? (
+                  <div className="mt-2.5 p-3 bg-gradient-to-r from-emerald-50 via-green-50 to-emerald-100/70 rounded-xl border-2 border-emerald-300 flex items-center justify-between text-xs animate-in fade-in duration-150 shadow-2xs">
+                    <div className="space-y-0.5">
+                      <span className="text-emerald-900 font-bold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        Formato Oficial Pesos (ARS):
+                      </span>
+                      <span className="text-[10px] text-emerald-700 block">
+                        Presupuesto registrado con precisión
+                      </span>
+                    </div>
+                    <span className="font-black text-emerald-950 text-base sm:text-lg font-mono">
+                      {formatARS(quoteAmountInput)}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-[#74777e] mt-1.5">
+                    Ingresá el valor en pesos. Podés incluir centavos con punto decimal (ej: <code>18500.50</code>) o elegir un monto sugerido:
+                  </p>
+                )}
+
+                {/* Botones de montos sugeridos y rápidos */}
+                <div className="mt-2.5 space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-[#74777e] tracking-wider block">
+                    Valores sugeridos de mano de obra (Valle de Lerma):
+                  </span>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                    {[15000, 25000, 40000, 60000, 90000, 150000].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => handleSetPresetAmount(preset)}
+                        className={`py-1.5 px-1 rounded-lg text-xs font-bold border transition-all cursor-pointer text-center ${
+                          parsedQuoteAmount === preset
+                            ? 'bg-[#9e4300] text-white border-[#9e4300] shadow-xs'
+                            : 'bg-white text-[#001428] border-gray-200 hover:bg-orange-50 hover:border-orange-200'
+                        }`}
+                      >
+                        ${(preset / 1000).toFixed(0)}k
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -974,16 +1073,23 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => setQuotingRequest(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-[#c3c6ce] text-xs font-semibold text-[#43474d]"
+                  className="flex-1 py-2.5 rounded-xl border border-[#c3c6ce] text-xs font-semibold text-[#43474d] cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-[#9e4300] hover:bg-[#853900] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow cursor-pointer"
+                  disabled={parsedQuoteAmount <= 0}
+                  className={`flex-1 py-2.5 rounded-xl text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow transition-all ${
+                    parsedQuoteAmount > 0
+                      ? 'bg-[#9e4300] hover:bg-[#853900] cursor-pointer active:scale-98'
+                      : 'bg-gray-400 opacity-60 cursor-not-allowed'
+                  }`}
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>Enviar Presupuesto</span>
+                  <span>
+                    Enviar Presupuesto {parsedQuoteAmount > 0 ? `(${formatARS(quoteAmountInput)})` : ''}
+                  </span>
                 </button>
               </div>
             </form>
@@ -1256,6 +1362,7 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
           loggedInPro={loggedInPro}
           userProfile={userProfile}
           onOpenReport={onOpenReport}
+          onSendQuote={onSendQuote}
         />
       )}
     </div>
