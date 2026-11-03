@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { ExploreScreen } from './components/ExploreScreen';
@@ -14,6 +14,8 @@ import { AdvertisementModal } from './components/AdvertisementModal';
 import { AdminAuthModal } from './components/AdminAuthModal';
 import { ReclamosSugerenciasModal } from './components/ReclamosSugerenciasModal';
 import { QuickGuideModal } from './components/QuickGuideModal';
+import { RequestNotificationToast } from './components/RequestNotificationToast';
+import { InternalContactModal } from './components/InternalContactModal';
 import { 
   INITIAL_PROFESSIONALS, 
   SERVICE_CATEGORIES, 
@@ -372,6 +374,26 @@ export default function App() {
     }
   }, [loggedInProId]);
 
+  // Real-time request and quote notifications (Toast with chime & vibration)
+  const [incomingNotification, setIncomingNotification] = useState<{
+    type: 'new_request' | 'new_quote';
+    request: ServiceRequest;
+  } | null>(null);
+  const [workerForInternalContact, setWorkerForInternalContact] = useState<Professional | null>(null);
+  const [internalContactInitialMsg, setInternalContactInitialMsg] = useState<string | undefined>(undefined);
+  const prevRequestIdsRef = useRef<Set<string> | null>(null);
+  const prevRequestStatusRef = useRef<Map<string, string>>(new Map());
+  const loggedInProIdRef = useRef<string | null>(loggedInProId);
+  const professionalsRef = useRef<Professional[]>(professionals);
+
+  useEffect(() => {
+    loggedInProIdRef.current = loggedInProId;
+  }, [loggedInProId]);
+
+  useEffect(() => {
+    professionalsRef.current = professionals;
+  }, [professionals]);
+
   // Firebase Firestore Real-Time Synchronization across all mobile and web devices
   useEffect(() => {
     // 1. Initial seed if cloud collections are newly created and empty
@@ -426,9 +448,44 @@ export default function App() {
       }
     });
 
-    // 5. Real-time sync for Service Requests
+    // 5. Real-time sync for Service Requests with Real-Time Notification Trigger
     const unsubRequests = subscribeToServiceRequests((remoteReqs) => {
       if (remoteReqs && remoteReqs.length > 0) {
+        // Detect newly arrived requests or new quotes in real-time
+        if (prevRequestIdsRef.current === null) {
+          prevRequestIdsRef.current = new Set(remoteReqs.map(r => r.id));
+          prevRequestStatusRef.current = new Map(remoteReqs.map(r => [r.id, r.status]));
+        } else {
+          // Check for brand new requests
+          const newRequests = remoteReqs.filter(r => !prevRequestIdsRef.current?.has(r.id));
+          if (newRequests.length > 0) {
+            const latestNew = newRequests[0];
+            const currentProId = loggedInProIdRef.current;
+            if (currentProId) {
+              const currentPro = professionalsRef.current.find(p => p.id === currentProId);
+              const isAssigned = latestNew.assignedWorkerId === currentProId || latestNew.quotedBy === currentPro?.name;
+              const matchesTrade = currentPro && latestNew.trade?.toLowerCase() === currentPro.trade?.toLowerCase();
+              if (isAssigned || matchesTrade) {
+                setIncomingNotification({ type: 'new_request', request: latestNew });
+              }
+            } else {
+              setIncomingNotification({ type: 'new_request', request: latestNew });
+            }
+          }
+
+          // Check for status updates (e.g. quote received)
+          for (const req of remoteReqs) {
+            const prevStatus = prevRequestStatusRef.current.get(req.id);
+            if (prevStatus && prevStatus !== 'cotizado' && req.status === 'cotizado') {
+              setIncomingNotification({ type: 'new_quote', request: req });
+              break;
+            }
+          }
+
+          prevRequestIdsRef.current = new Set(remoteReqs.map(r => r.id));
+          prevRequestStatusRef.current = new Map(remoteReqs.map(r => [r.id, r.status]));
+        }
+
         setRequests(prev => {
           const remoteIds = new Set(remoteReqs.map(r => r.id));
           const localOnly = prev.filter(r => !remoteIds.has(r.id));
@@ -759,7 +816,82 @@ export default function App() {
     showToast(`¡Presupuesto de $${quoteAmount.toLocaleString('es-AR')} enviado con éxito al cliente!`);
   };
 
-  // Provider contacts neighbor client directly via WhatsApp
+  // Confirm payment for contracted / completed work with audit logging
+  const handleConfirmPayment = (reqId: string, method: 'efectivo' | 'transferencia' | 'mercado_pago' = 'efectivo') => {
+    const receiptNum = `REC-VALLE-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    let updatedReq: ServiceRequest | null = null;
+
+    setRequests(prev => prev.map(r => {
+      if (r.id === reqId) {
+        const u: ServiceRequest = {
+          ...r,
+          paymentStatus: 'confirmado',
+          paymentMethod: method,
+          paymentConfirmedAt: new Date().toISOString(),
+          paymentConfirmedBy: loggedInPro ? loggedInPro.name : (userProfile.name || 'Vecino del Valle'),
+          paymentReceiptNumber: receiptNum
+        };
+        updatedReq = u;
+        return u;
+      }
+      return r;
+    }));
+
+    if (updatedReq) {
+      saveServiceRequestToFirestore(updatedReq).catch(e => console.warn('Firestore payment confirm error:', e));
+      logDeviceAccess({
+        action: `Confirmó pago de trabajo #${(updatedReq as ServiceRequest).contractNumber || reqId} (${method.toUpperCase()}) - Recibo #${receiptNum}`,
+        favoriteProIds: favorites
+      }).catch(() => {});
+    }
+
+    showToast(`¡Pago de obra registrado y confirmado con éxito! Recibo #${receiptNum}`);
+  };
+
+  // Open internal contact modal
+  const handleStartInternalContact = (worker: Professional, defaultMsg?: string) => {
+    logDeviceAccess({
+      action: `Inició consulta interna con ${worker.name} (${worker.trade})`,
+      favoriteProIds: favorites
+    }).catch(() => {});
+    setWorkerForInternalContact(worker);
+    setInternalContactInitialMsg(defaultMsg);
+  };
+
+  // Submit internal contact request and save in Firestore
+  const handleSubmitInternalContact = (worker: Professional, description: string, title?: string) => {
+    const reqTitle = title || `Consulta de ${worker.trade}`;
+    const newReq: ServiceRequest = {
+      id: `req-${Date.now()}`,
+      title: reqTitle,
+      trade: worker.trade,
+      neighborhood: worker.neighborhood,
+      description: description,
+      createdAt: 'Hoy, hace instantes',
+      status: 'en_espera',
+      quotedBy: worker.name,
+      quotedByAvatar: worker.avatar,
+      quotedByTrade: worker.trade,
+      assignedWorkerId: worker.id,
+      phoneContact: worker.phone,
+      clientName: userProfile.name || 'Vecino del Valle',
+      deviceId: localStorage.getItem('oficios_device_uuid') || `DEV-${Date.now().toString(36).toUpperCase()}`
+    };
+
+    setRequests(prev => [newReq, ...prev]);
+    saveServiceRequestToFirestore(newReq).catch(e => console.warn('Save internal contact error:', e));
+    recordServiceRequestCreated().catch(() => {});
+    logDeviceAccess({
+      action: `Publicó consulta interna a ${worker.name}: ${reqTitle}`,
+      favoriteProIds: favorites,
+      neighborhood: worker.neighborhood
+    }).catch(() => {});
+
+    showToast(`¡Consulta enviada a ${worker.name.split(' ')[0]} con resguardo seguro de 30 días!`);
+    setCurrentTab('solicitudes');
+  };
+
+  // Provider contacts neighbor client directly via internal chat or WhatsApp fallback
   const handleContactClientWhatsApp = (phone: string, clientName: string, requestTitle: string) => {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     const proName = loggedInPro ? loggedInPro.name.split(' ')[0] : 'Prestador';
@@ -1057,6 +1189,16 @@ export default function App() {
         </div>
       )}
 
+      {/* Real-Time Request / Quote Audio & Visual Toast Notification */}
+      <RequestNotificationToast
+        notification={incomingNotification}
+        onClose={() => setIncomingNotification(null)}
+        onViewRequest={(req) => {
+          setIncomingNotification(null);
+          setCurrentTab('solicitudes');
+        }}
+      />
+
       {/* Top Header */}
       <Header
         currentTab={currentTab}
@@ -1097,6 +1239,7 @@ export default function App() {
             onOpenEmergencyModal={() => setIsEmergencyModalOpen(true)}
             onSelectWorker={setSelectedWorkerForDetail}
             onContactWhatsApp={(w) => handleContactWhatsApp(w)}
+            onStartInternalChat={handleStartInternalContact}
             onNavigateToSerPro={() => setCurrentTab('ser-profesional')}
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
@@ -1119,6 +1262,7 @@ export default function App() {
             userProfile={userProfile}
             onSendQuote={handleSendQuote}
             onContactClientWhatsApp={handleContactClientWhatsApp}
+            onConfirmPayment={handleConfirmPayment}
             onNavigateToSerPro={() => setCurrentTab('ser-profesional')}
             onOpenReport={handleOpenReclamos}
           />
@@ -1201,6 +1345,10 @@ export default function App() {
           requests={requests}
           onClose={() => setSelectedWorkerForDetail(null)}
           onContactWhatsApp={(w, customMsg) => handleContactWhatsApp(w, customMsg)}
+          onStartInternalChat={(w, customMsg) => {
+            setSelectedWorkerForDetail(null);
+            handleStartInternalContact(w, customMsg);
+          }}
           isFavorite={favorites.includes(selectedWorkerForDetail.id)}
           onToggleFavorite={handleToggleFavorite}
           onRequestQuote={handleRequestQuoteFromWorker}
@@ -1213,6 +1361,19 @@ export default function App() {
           onUploadJobPhotoForRequest={handleUploadJobPhotoForRequest}
         />
       )}
+
+      {/* Internal Contact Modal with 30-Day Traceability & Logs */}
+      <InternalContactModal
+        isOpen={Boolean(workerForInternalContact)}
+        onClose={() => {
+          setWorkerForInternalContact(null);
+          setInternalContactInitialMsg(undefined);
+        }}
+        worker={workerForInternalContact}
+        userProfile={userProfile}
+        initialMessage={internalContactInitialMsg}
+        onSubmitRequest={handleSubmitInternalContact}
+      />
 
       {/* WhatsApp Message Composer Modal */}
       {selectedWorkerForWhatsApp && (

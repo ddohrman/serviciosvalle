@@ -37,6 +37,7 @@ interface SolicitudesScreenProps {
   userProfile?: UserProfile;
   onSendQuote?: (reqId: string, quoteAmount: number, quoteNote?: string) => void;
   onContactClientWhatsApp?: (phone: string, clientName: string, requestTitle: string) => void;
+  onConfirmPayment?: (reqId: string, method?: 'efectivo' | 'transferencia' | 'mercado_pago') => void;
   onNavigateToSerPro?: () => void;
   onOpenReport?: (req?: ServiceRequest | null) => void;
 }
@@ -53,6 +54,7 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
   userProfile,
   onSendQuote,
   onContactClientWhatsApp,
+  onConfirmPayment,
   onNavigateToSerPro,
   onOpenReport
 }) => {
@@ -435,6 +437,38 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                             <span>Subir Foto Certificada (Suma reputación en tu perfil)</span>
                           </button>
                         )}
+
+                        {/* Trazabilidad del Pago de la Obra para el Prestador */}
+                        {req.paymentStatus === 'confirmado' ? (
+                          <div className="flex items-center justify-between p-2 rounded-xl bg-emerald-100/90 border border-emerald-300 text-xs">
+                            <div className="flex items-center gap-1.5 font-bold text-emerald-950">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                              <span>Pago Registrado y Acreditado ({req.paymentMethod?.toUpperCase() || 'REGISTRADO'})</span>
+                            </div>
+                            <span className="font-mono text-[10px] text-emerald-900 bg-white px-2 py-0.5 rounded border border-emerald-300 font-bold">
+                              Recibo #{req.paymentReceiptNumber || `REC-${req.id.replace('req-', '').slice(-4)}`}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="p-2.5 rounded-xl bg-amber-50/90 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                            <div>
+                              <span className="font-bold text-amber-950 block">Cobro de la Obra: Pendiente de cobro</span>
+                              <span className="text-[10px] text-amber-900">
+                                Monto a cobrar: ${req.quoteAmount?.toLocaleString('es-AR') || 'A convenir'}
+                              </span>
+                            </div>
+                            {onConfirmPayment && (
+                              <button
+                                type="button"
+                                onClick={() => onConfirmPayment(req.id, 'efectivo')}
+                                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1 cursor-pointer shadow-2xs transition-all"
+                              >
+                                <DollarSign className="w-3.5 h-3.5 text-emerald-200" />
+                                <span>Marcar Pago Recibido</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -461,31 +495,11 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                         <button
                           type="button"
                           onClick={() => setActiveChatRequest(req)}
-                          className="flex-1 h-9 rounded-xl bg-[#001428] hover:bg-[#0f2942] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                          className="w-full h-10 rounded-xl bg-[#001428] hover:bg-[#0f2942] active:scale-98 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
                           title="Chat directo en la plataforma con copia de seguridad por 30 días"
                         >
-                          <MessageCircle className="w-3.5 h-3.5 text-[#ffdbcb]" />
-                          <span>Chat en Vivo</span>
-                        </button>
-
-                        {/* WhatsApp Direct to Neighbor */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const clientPhone = req.phoneContact || '+54 387 455-8910';
-                            const clientName = req.clientName || 'Vecino';
-                            if (onContactClientWhatsApp) {
-                              onContactClientWhatsApp(clientPhone, clientName, req.title);
-                            } else {
-                              const cleanPhone = clientPhone.replace(/[^0-9]/g, '');
-                              const msg = encodeURIComponent(`Hola ${clientName}, te escribe ${loggedInPro.name.split(' ')[0]} (${loggedInPro.trade}) de Oficios Valle de Lerma por tu pedido de "${req.title}". ¿Cómo estás?`);
-                              window.open(`https://wa.me/${cleanPhone}?text=${msg}`, '_blank', 'noopener,noreferrer');
-                            }
-                          }}
-                          className="flex-1 h-9 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                        >
-                          <Phone className="w-3.5 h-3.5" />
-                          <span>WhatsApp</span>
+                          <MessageCircle className="w-4 h-4 text-amber-300" />
+                          <span>Chat en Vivo de la Solicitud (Resguardo 30d)</span>
                         </button>
                       </div>
                     </div>
@@ -767,6 +781,38 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                             </div>
                           )
                         )}
+                        {/* Trazabilidad del Pago de la Obra */}
+                        {req.paymentStatus === 'confirmado' ? (
+                          <div className="flex items-center justify-between p-2 rounded-xl bg-emerald-100/90 border border-emerald-300 text-xs">
+                            <div className="flex items-center gap-1.5 font-bold text-emerald-950">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                              <span>Pago de Obra Confirmado ({req.paymentMethod?.toUpperCase() || 'REGISTRADO'})</span>
+                            </div>
+                            <span className="font-mono text-[10px] text-emerald-900 bg-white px-2 py-0.5 rounded border border-emerald-300 font-bold">
+                              Recibo #{req.paymentReceiptNumber || `REC-${req.id.replace('req-', '').slice(-4)}`}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="p-2.5 rounded-xl bg-amber-50/90 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                            <div>
+                              <span className="font-bold text-amber-950 block">Trazabilidad de Pago: En gestión</span>
+                              <span className="text-[10px] text-amber-900">
+                                Total acordado: ${req.quoteAmount?.toLocaleString('es-AR') || 'A convenir'}
+                              </span>
+                            </div>
+                            {onConfirmPayment && (
+                              <button
+                                type="button"
+                                onClick={() => onConfirmPayment(req.id, 'efectivo')}
+                                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1 cursor-pointer shadow-2xs transition-all"
+                              >
+                                <DollarSign className="w-3.5 h-3.5 text-emerald-200" />
+                                <span>Confirmar Pago Recibido / Efectuado</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+
                         {/* Contracted Chat Button */}
                         <div className="pt-1">
                           <button
@@ -813,19 +859,11 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                             <button
                               type="button"
                               onClick={() => setActiveChatRequest(req)}
-                              className="h-9 rounded-lg bg-[#001428] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs hover:bg-[#0f2942] active:scale-95 transition-all cursor-pointer"
+                              className="w-full h-9 rounded-lg bg-[#001428] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs hover:bg-[#0f2942] active:scale-95 transition-all cursor-pointer"
                               title="Chat directo seguro con resguardo de 30 días"
                             >
-                              <MessageCircle className="w-3.5 h-3.5 text-[#ffdbcb]" />
-                              <span>Chat en Vivo</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onOpenWhatsAppQuote(req)}
-                              className="h-9 rounded-lg bg-[#25D366] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs hover:bg-[#20bd5a] active:scale-95 transition-all cursor-pointer"
-                            >
-                              <Phone className="w-3.5 h-3.5" />
-                              <span>WhatsApp</span>
+                              <MessageCircle className="w-3.5 h-3.5 text-amber-300" />
+                              <span>Chat en Vivo de la Cotización (Trazabilidad 30d)</span>
                             </button>
                           </div>
                           <button

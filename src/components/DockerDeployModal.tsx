@@ -58,8 +58,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Instalar dependencias de compilación
-COPY package*.json ./
-RUN npm ci || npm install
+COPY package.json ./
+RUN npm install --legacy-peer-deps
 
 # Copiar el código fuente completo
 COPY . .
@@ -148,16 +148,37 @@ export const DockerDeployModal: React.FC<DockerDeployModalProps> = ({
     setTimeout(() => setCopiedKey(null), 2500);
   };
 
-  const handleDownloadCompose = () => {
-    const blob = new Blob([DOCKER_COMPOSE_CONTENT], { type: 'text/yaml;charset=utf-8' });
+  const handleDownloadFile = (content: string, filename: string, mime: string) => {
+    const blob = new Blob([content], { type: `${mime};charset=utf-8` });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'docker-compose.yml';
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadCompose = () => {
+    handleDownloadFile(DOCKER_COMPOSE_CONTENT, 'docker-compose.yml', 'text/yaml');
+  };
+
+  const handleDownloadDockerfile = () => {
+    handleDownloadFile(DOCKERFILE_CONTENT, 'Dockerfile', 'text/plain');
+  };
+
+  const handleDownloadNginx = () => {
+    handleDownloadFile(NGINX_CONF_CONTENT, 'nginx.conf', 'text/plain');
+  };
+
+  const handleDownloadFullZip = () => {
+    const link = document.createElement('a');
+    link.href = '/oficios-valle-de-lerma.zip';
+    link.download = 'oficios-valle-de-lerma.zip';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const quickSteps = [
@@ -460,8 +481,19 @@ export const DockerDeployModal: React.FC<DockerDeployModalProps> = ({
             <span className="font-medium">Docker v2 + Nginx Alpine + React 19 SPA</span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
+              type="button"
+              onClick={handleDownloadFullZip}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[#001428] hover:bg-[#0f2942] text-white flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all active:scale-95"
+              title="Descargar paquete ZIP con todos los archivos del proyecto y Docker"
+            >
+              <Download className="w-3.5 h-3.5 text-amber-300" />
+              <span>Descargar ZIP Completo</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleDownloadCompose}
               className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-400 hover:bg-amber-300 text-[#001428] border border-amber-500 flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all active:scale-95"
             >
@@ -470,6 +502,7 @@ export const DockerDeployModal: React.FC<DockerDeployModalProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={onClose}
               className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-200 hover:bg-slate-300 text-slate-800 transition-colors cursor-pointer"
             >

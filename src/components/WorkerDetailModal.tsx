@@ -36,7 +36,8 @@ import { NEIGHBORHOODS } from '../data/mockData';
 interface WorkerDetailModalProps {
   worker: Professional | null;
   onClose: () => void;
-  onContactWhatsApp: (worker: Professional, defaultMessage?: string) => void;
+  onContactWhatsApp?: (worker: Professional, defaultMessage?: string) => void;
+  onStartInternalChat?: (worker: Professional, defaultMessage?: string) => void;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onRequestQuote: (worker: Professional, jobDesc: string) => void;
@@ -51,6 +52,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   worker,
   onClose,
   onContactWhatsApp,
+  onStartInternalChat,
   isFavorite,
   onToggleFavorite,
   onRequestQuote,
@@ -244,11 +246,19 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 <span>Llamar</span>
               </a>
               <button
-                onClick={() => onContactWhatsApp(worker)}
-                className="h-10 px-4 rounded-xl bg-[#25D366] text-white font-bold text-xs flex items-center gap-1.5 shadow hover:bg-[#20bd5a] active:scale-95 transition-all cursor-pointer"
+                type="button"
+                onClick={() => {
+                  if (onStartInternalChat) {
+                    onStartInternalChat(worker);
+                  } else if (onContactWhatsApp) {
+                    onContactWhatsApp(worker);
+                  }
+                }}
+                className="h-10 px-4 rounded-xl bg-[#001428] hover:bg-[#0f2942] text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition-all cursor-pointer"
+                title="Abrir chat y consulta interna con resguardo de 30 días"
               >
-                <MessageCircle className="w-4 h-4 fill-current" />
-                <span>WhatsApp</span>
+                <MessageCircle className="w-4 h-4 text-amber-300" />
+                <span>Chat Interno</span>
               </button>
             </div>
           </div>
@@ -433,7 +443,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   ¿Querés pedirle un presupuesto a {worker.name.split(' ')[0]}?
                 </h5>
                 <p className="text-[11px] text-[#43474d] mb-2.5">
-                  Describí tu necesidad y te contactará por teléfono o WhatsApp sin compromiso.
+                  Describí tu necesidad y se coordinará por el chat interno de la app con registro auditable y resguardo de 30 días.
                 </p>
                 {quoteSent ? (
                   <div className="p-2.5 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg flex items-center gap-2">
@@ -870,14 +880,20 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           )}
         </div>
 
-        {/* Modal Bottom CTA */}
+        {/* Modal Bottom CTA - Consulta Interna Auditada con Trazabilidad */}
         <div className="p-4 bg-[#f8f9ff] border-t border-[#e2e8f0] flex items-center gap-2 shrink-0">
           <button
-            onClick={() => onContactWhatsApp(worker)}
-            className="flex-1 h-12 rounded-xl bg-[#25D366] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md hover:bg-[#20bd5a] active:scale-[0.98] transition-all cursor-pointer"
+            onClick={() => {
+              if (onStartInternalChat) {
+                onStartInternalChat(worker);
+              } else if (onContactWhatsApp) {
+                onContactWhatsApp(worker);
+              }
+            }}
+            className="flex-1 h-12 rounded-xl bg-gradient-to-r from-[#003366] to-[#0055a5] hover:from-[#002850] hover:to-[#004080] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md active:scale-[0.98] transition-all cursor-pointer"
           >
-            <MessageCircle className="w-5 h-5 fill-current" />
-            <span>Consultar por WhatsApp</span>
+            <ShieldCheck className="w-5 h-5 text-emerald-400" />
+            <span>Iniciar Consulta y Chat Interno (Auditado)</span>
           </button>
         </div>
       </div>
@@ -1016,13 +1032,18 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      const msg = `Hola ${worker.name}, estuve viendo la foto de tu trabajo "${selectedJobForLightbox.title}" en ${selectedJobForLightbox.neighborhood} y me gustaría pedirte un presupuesto similar para mi domicilio.`;
-                      onContactWhatsApp(worker, msg);
+                      const msg = `Hola ${worker.name}, estuve viendo la foto de tu trabajo "${selectedJobForLightbox.title}" en ${selectedJobForLightbox.neighborhood} y me gustaría pedirte un presupuesto para un trabajo similar.`;
+                      if (onStartInternalChat) {
+                        onStartInternalChat(worker, msg);
+                      } else {
+                        onRequestQuote(worker, msg);
+                      }
+                      handleCloseLightbox();
                     }}
-                    className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md"
+                    className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-amber-500 to-[#9e4300] hover:from-amber-400 hover:to-[#853900] active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md"
                   >
                     <MessageCircle className="w-4 h-4" />
-                    <span>Pedir presupuesto similar por WhatsApp</span>
+                    <span>Pedir presupuesto similar por Chat Interno</span>
                   </button>
                 </div>
               </div>

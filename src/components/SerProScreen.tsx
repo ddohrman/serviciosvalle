@@ -41,13 +41,15 @@ import {
   BookOpen,
   ListFilter,
   Tag,
-  Layers
+  Layers,
+  Smartphone
 } from 'lucide-react';
 import { Professional, ServiceCategory, Neighborhood, CompletedJob, AppAdvertisement, AppAnalytics, ServiceRequest } from '../types';
 import { AdminAdvertisementConfig } from './AdminAdvertisementConfig';
 import { AdminStatsDashboard } from './AdminStatsDashboard';
 import { AdminCategoriesNeighborhoodsConfig } from './AdminCategoriesNeighborhoodsConfig';
 import { DockerDeployModal } from './DockerDeployModal';
+import { AdminApkModal } from './AdminApkModal';
 import { DEFAULT_ANALYTICS } from '../lib/firebase';
 
 
@@ -168,6 +170,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
   const [viewingDocumentModal, setViewingDocumentModal] = useState<{ title: string; imageUrl: string } | null>(null);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
   const [isDockerModalOpen, setIsDockerModalOpen] = useState(false);
+  const [isApkModalOpen, setIsApkModalOpen] = useState(false);
 
   // File upload handlers for DNI and Certification
   const handleDniFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1726,7 +1729,27 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <a
+                    href="/oficios-valle-de-lerma.zip"
+                    download="oficios-valle-de-lerma.zip"
+                    className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-[#001428] text-xs font-black rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-sm border border-amber-300"
+                    title="Descargar paquete ZIP con todos los archivos del proyecto y Docker"
+                  >
+                    <Download className="w-4 h-4 text-[#001428]" />
+                    <span>Descargar ZIP (Código)</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsApkModalOpen(true)}
+                    className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-green-700 hover:from-emerald-500 hover:to-green-600 active:scale-95 text-white text-xs font-black rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-sm border border-emerald-400"
+                    title="Descargar paquete APK instalador para celulares Android"
+                  >
+                    <Smartphone className="w-4 h-4 text-emerald-200" />
+                    <span>Descargar APK (Android)</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => setIsDockerModalOpen(true)}
@@ -1761,6 +1784,24 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
                       <Cloud className="w-3 h-3 text-emerald-600 animate-pulse" /> Cloud Firebase Conectado
                     </span>
+                    <a
+                      href="/oficios-valle-de-lerma.zip"
+                      download="oficios-valle-de-lerma.zip"
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500 hover:bg-amber-400 text-[#001428] text-[11px] font-black border border-amber-600 shadow-2xs transition-colors cursor-pointer"
+                      title="Descargar archivo ZIP de la aplicación"
+                    >
+                      <Download className="w-3 h-3 text-[#001428]" />
+                      <span>Descargar ZIP</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setIsApkModalOpen(true)}
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-bold border border-emerald-500 shadow-2xs transition-colors cursor-pointer"
+                      title="Descargar APK oficial para Android"
+                    >
+                      <Smartphone className="w-3 h-3 text-emerald-200" />
+                      <span>Descargar APK</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => setIsDockerModalOpen(true)}
@@ -1983,6 +2024,8 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                     setAdminSubSection('prestadores');
                   }}
                   onSwitchToPrestadores={() => setAdminSubSection('prestadores')}
+                  onOpenApkModal={() => setIsApkModalOpen(true)}
+                  onOpenDockerModal={() => setIsDockerModalOpen(true)}
                 />
               )}
 
@@ -2275,6 +2318,12 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
       <DockerDeployModal
         isOpen={isDockerModalOpen}
         onClose={() => setIsDockerModalOpen(false)}
+      />
+
+      {/* Modal de Descarga e Instalación del APK de Android */}
+      <AdminApkModal
+        isOpen={isApkModalOpen}
+        onClose={() => setIsApkModalOpen(false)}
       />
     </div>
   );

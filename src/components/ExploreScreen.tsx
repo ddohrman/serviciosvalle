@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { Professional, ServiceCategory, Neighborhood } from '../types';
 import { APP_LOGO_URL, isWorkerInNeighborhood, isWorkerMatchingSearch } from '../data/mockData';
+import { FeaturedWorkersModal } from './FeaturedWorkersModal';
 
 interface ExploreScreenProps {
   professionals: Professional[];
@@ -58,7 +59,8 @@ interface ExploreScreenProps {
   onOpenFilterModal: () => void;
   onOpenEmergencyModal: () => void;
   onSelectWorker: (worker: Professional) => void;
-  onContactWhatsApp: (worker: Professional) => void;
+  onContactWhatsApp?: (worker: Professional) => void;
+  onStartInternalChat?: (worker: Professional) => void;
   onNavigateToSerPro: () => void;
   favorites: string[];
   onToggleFavorite: (id: string) => void;
@@ -129,9 +131,11 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
   onToggleFavorite,
   loggedInPro,
   isDevAdmin = false,
-  onTriggerAdminUnlock
+  onTriggerAdminUnlock,
+  onStartInternalChat
 }) => {
   const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
+  const [isFeaturedModalOpen, setIsFeaturedModalOpen] = useState(false);
   const [showAllWorkersManual, setShowAllWorkersManual] = useState(false);
 
   // Web Speech Recognition API state
@@ -614,192 +618,36 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
           </div>
         )}
 
-        {/* Acceso rápido a categorías comunes en cinta compacta */}
-        <div className="mt-2.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-          <button
-            type="button"
-            onClick={() => onSelectCategory(null)}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 transition-colors cursor-pointer border ${
-              !selectedCategory
-                ? 'bg-[#001428] text-white border-[#001428]'
-                : 'bg-white text-[#43474d] border-[#c3c6ce] hover:bg-[#f8f9ff]'
-            }`}
-          >
-            Todos
-          </button>
-          {categories.map((cat) => {
-            const isCatSelected = selectedCategory === cat.id;
-            return (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => handleSelectCategory(cat.id)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 transition-colors cursor-pointer flex items-center gap-1 border ${
-                  isCatSelected
-                    ? 'bg-[#9e4300] text-white border-[#9e4300] ring-1 ring-[#ffdbcb]'
-                    : 'bg-white text-[#001428] border-[#e2e8f0] hover:border-[#9e4300] hover:bg-[#fff7f2]'
-                }`}
-              >
-                <span>{cat.name.split(' ')[0]}</span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* 2. Sección Destacados del Mes (Top 3 por Calificación y Trabajos Verificados) */}
-      {featuredOfTheMonth.length > 0 && (
-        <section className="px-3 sm:px-4 pt-1 pb-2 max-w-xl mx-auto w-full animate-in fade-in duration-200">
-          <div className="bg-gradient-to-br from-[#001428] via-[#09223a] to-[#123354] rounded-2xl p-3 sm:p-4 text-white shadow-md border border-[#1e3e60] relative overflow-hidden">
-            {/* Resplandor de fondo */}
-            <div className="absolute top-0 right-0 w-36 h-36 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
-
-            {/* Cabecera de la sección */}
-            <div className="flex items-center justify-between gap-2 mb-3 relative z-10">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#9e4300] to-amber-400 flex items-center justify-center text-white shadow-xs shrink-0">
+        {/* Botón Destacados del Mes (Top 3 del Valle) */}
+        {featuredOfTheMonth.length > 0 && (
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setIsFeaturedModalOpen(true)}
+              className="w-full py-2.5 px-3.5 rounded-xl bg-gradient-to-r from-[#001428] via-[#09223a] to-[#123354] hover:from-[#001428] hover:to-[#1a4066] text-white font-bold text-xs sm:text-sm flex items-center justify-between shadow-md transition-all cursor-pointer border border-[#1e3e60] group active:scale-98"
+              title="Abrir panel de profesionales destacados del Valle de Lerma"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-[#9e4300] to-amber-400 text-white flex items-center justify-center font-bold shadow-2xs group-hover:scale-105 transition-transform shrink-0">
                   <Trophy className="w-4 h-4 text-amber-100" />
                 </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <h2 className="text-sm sm:text-base font-extrabold text-white tracking-tight">
-                      Destacados del Mes
-                    </h2>
-                    <span className="text-[10px] font-black uppercase tracking-wider bg-amber-400 text-[#001428] px-1.5 py-0.5 rounded-full shadow-2xs">
-                      Top 3
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-[#d3e4fe] truncate">
-                    Mejores valoraciones y mayor cantidad de trabajos verificados
-                  </p>
+                <div className="text-left truncate">
+                  <span className="block leading-tight text-white font-extrabold truncate">
+                    ⭐ Ver Profesionales Destacados del Mes
+                  </span>
+                  <span className="text-[10px] text-amber-200 truncate block">
+                    Top 3 con mejores opiniones y obras certificadas
+                  </span>
                 </div>
               </div>
-
-              <div className="hidden sm:flex items-center gap-1 text-[11px] font-bold text-amber-300 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10 shrink-0">
+              <div className="flex items-center gap-1 bg-white/10 px-2 py-0.5 rounded-lg text-amber-300 text-xs font-black shrink-0 border border-white/10">
                 <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>Valle de Lerma</span>
+                <span>Top 3</span>
               </div>
-            </div>
-
-            {/* Tarjetas de los 3 Destacados: Desplazamiento táctil en móviles, 3 columnas en pantallas mayores */}
-            <div className="flex gap-2.5 overflow-x-auto no-scrollbar pb-1 pt-0.5 sm:grid sm:grid-cols-3 sm:overflow-visible">
-              {featuredOfTheMonth.map(({ worker, verifiedJobsCount }, index) => {
-                const rankStyles = [
-                  { label: '#1 Oro', badgeBg: 'bg-gradient-to-r from-amber-500 to-amber-600 text-white', medalColor: 'text-amber-200' },
-                  { label: '#2 Plata', badgeBg: 'bg-gradient-to-r from-slate-500 to-slate-600 text-white', medalColor: 'text-slate-200' },
-                  { label: '#3 Bronce', badgeBg: 'bg-gradient-to-r from-amber-800 to-amber-900 text-white', medalColor: 'text-amber-300' },
-                ];
-                const rank = rankStyles[index] || rankStyles[2];
-                const isFav = favorites.includes(worker.id);
-
-                return (
-                  <div
-                    key={worker.id}
-                    className="w-[230px] sm:w-auto shrink-0 bg-white rounded-xl p-3 shadow-xs border border-white/90 flex flex-col justify-between text-[#001428] relative hover:shadow-md hover:border-amber-300 transition-all group"
-                  >
-                    {/* Barra superior de puesto y favorito */}
-                    <div className="flex items-center justify-between gap-1 mb-2">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold shadow-2xs ${rank.badgeBg}`}>
-                        <Medal className={`w-3 h-3 ${rank.medalColor}`} />
-                        <span>{rank.label}</span>
-                      </span>
-
-                      <button
-                        type="button"
-                        onClick={() => onToggleFavorite(worker.id)}
-                        className={`p-1 rounded-full hover:bg-slate-100 transition-colors cursor-pointer ${
-                          isFav ? 'text-red-500' : 'text-slate-400 hover:text-slate-600'
-                        }`}
-                        title={isFav ? 'Quitar de favoritos' : 'Guardar en favoritos'}
-                        aria-label="Favorito"
-                      >
-                        <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
-                      </button>
-                    </div>
-
-                    {/* Foto, Nombre y Especialidad */}
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="relative shrink-0">
-                        <img
-                          src={worker.avatar}
-                          alt={worker.name}
-                          className="w-11 h-11 rounded-full object-cover border-2 border-amber-300 shadow-2xs bg-slate-100"
-                          loading="lazy"
-                        />
-                        {worker.availableNow && (
-                          <span
-                            className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white"
-                            title="Disponible hoy"
-                          />
-                        )}
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <h3
-                          onClick={() => onSelectWorker(worker)}
-                          className="text-xs sm:text-sm font-bold text-[#001428] truncate hover:text-[#9e4300] cursor-pointer transition-colors leading-tight"
-                          title={worker.name}
-                        >
-                          {worker.name}
-                        </h3>
-                        <p className="text-[11px] font-semibold text-[#9e4300] truncate mt-0.5">
-                          {worker.trade}
-                        </p>
-                        <div className="flex items-center gap-1 text-[10px] text-[#43474d] truncate mt-0.5">
-                          <MapPin className="w-3 h-3 text-[#74777e] shrink-0" />
-                          <span className="truncate">{worker.neighborhood}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Bloque de Calificación y Obras Verificadas */}
-                    <div className="bg-[#f8f9ff] rounded-lg p-2 mb-2.5 space-y-1 border border-[#e2e8f0]">
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1 text-[#9e4300] font-bold">
-                          <Star className="w-3.5 h-3.5 fill-current text-amber-500" />
-                          <span>{worker.rating.toFixed(1)}</span>
-                          <span className="text-[10px] text-[#74777e] font-normal">
-                            ({worker.reviewCount})
-                          </span>
-                        </div>
-                        <span className="text-[9px] font-extrabold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-emerald-200">
-                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                          {worker.verified ? 'Verificado' : 'Activo'}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1 text-[10px] font-bold text-[#005312] pt-0.5">
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span>{verifiedJobsCount} obra{verifiedJobsCount === 1 ? '' : 's'} certificada{verifiedJobsCount === 1 ? '' : 's'}</span>
-                      </div>
-                    </div>
-
-                    {/* Botones de acción directa */}
-                    <div className="grid grid-cols-2 gap-1.5 mt-auto">
-                      <button
-                        type="button"
-                        onClick={() => onSelectWorker(worker)}
-                        className="py-1.5 px-2 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#001428] text-[11px] font-bold text-center cursor-pointer transition-colors shadow-2xs"
-                      >
-                        Ver Perfil
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onContactWhatsApp(worker)}
-                        className="py-1.5 px-2 rounded-lg bg-[#25D366] hover:bg-[#1ebd5a] text-white text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                        title="Contactar directo por WhatsApp"
-                      >
-                        <MessageCircle className="w-3 h-3 fill-current" />
-                        <span>WhatsApp</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            </button>
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
       {/* 3. Listado de Profesionales y Oficios */}
       <section id="profesionales-list" className="px-4 pt-1 pb-4 max-w-xl mx-auto w-full animate-in fade-in duration-200">
@@ -1048,11 +896,18 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => onContactWhatsApp(worker)}
-                        className="h-10 rounded-xl bg-[#0f2942] text-white font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-[#001428] active:scale-95 transition-all cursor-pointer"
+                        onClick={() => {
+                          if (onStartInternalChat) {
+                            onStartInternalChat(worker);
+                          } else if (onContactWhatsApp) {
+                            onContactWhatsApp(worker);
+                          }
+                        }}
+                        className="h-10 rounded-xl bg-[#001428] hover:bg-[#0f2942] text-white font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer shadow-2xs"
+                        title="Contactar o consultar por chat interno con trazabilidad de 30 días"
                       >
-                        <MessageCircle className="w-4 h-4 text-[#a3f69c] fill-current" />
-                        <span>WhatsApp</span>
+                        <MessageCircle className="w-4 h-4 text-amber-300" />
+                        <span>Chat Interno</span>
                       </button>
                     </div>
                   </article>
@@ -1222,6 +1077,23 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal Dedicado de Profesionales Destacados del Mes */}
+      <FeaturedWorkersModal
+        isOpen={isFeaturedModalOpen}
+        onClose={() => setIsFeaturedModalOpen(false)}
+        featuredWorkers={featuredOfTheMonth}
+        favorites={favorites}
+        onToggleFavorite={onToggleFavorite}
+        onSelectWorker={onSelectWorker}
+        onStartInternalChat={(worker) => {
+          if (onStartInternalChat) {
+            onStartInternalChat(worker);
+          } else if (onContactWhatsApp) {
+            onContactWhatsApp(worker);
+          }
+        }}
+      />
     </div>
   );
 };

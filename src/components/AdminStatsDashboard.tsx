@@ -32,7 +32,9 @@ import {
   CheckSquare,
   ChevronRight,
   CornerDownRight,
-  RefreshCw
+  RefreshCw,
+  Layers,
+  Package
 } from 'lucide-react';
 import { AppAnalytics, Professional, DeviceAccessLog, ChatMessage, UserFeedback, ServiceRequest } from '../types';
 import { subscribeToDeviceLogs } from '../utils/deviceTracker';
@@ -47,6 +49,8 @@ interface AdminStatsDashboardProps {
   requests?: ServiceRequest[];
   onSelectFilter: (filter: 'todos' | 'prueba_activa' | 'prueba_caducada' | 'continuando_uso' | 'pendiente') => void;
   onSwitchToPrestadores: () => void;
+  onOpenApkModal?: () => void;
+  onOpenDockerModal?: () => void;
 }
 
 export const AdminStatsDashboard: React.FC<AdminStatsDashboardProps> = ({
@@ -54,7 +58,9 @@ export const AdminStatsDashboard: React.FC<AdminStatsDashboardProps> = ({
   professionals,
   requests = [],
   onSelectFilter,
-  onSwitchToPrestadores
+  onSwitchToPrestadores,
+  onOpenApkModal,
+  onOpenDockerModal
 }) => {
   const [copiedReport, setCopiedReport] = useState(false);
   const [deviceLogs, setDeviceLogs] = useState<DeviceAccessLog[]>([]);
@@ -214,6 +220,18 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {onOpenApkModal && (
+            <button
+              type="button"
+              onClick={onOpenApkModal}
+              className="px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-green-700 hover:from-emerald-500 hover:to-green-600 active:scale-95 border border-emerald-400 text-white text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-xs shrink-0"
+              title="Descargar paquete APK instalador para celulares Android"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-emerald-200" />
+              <span>Descargar APK (Android)</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleSeedDemoData}
@@ -249,6 +267,141 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
               </>
             )}
           </button>
+        </div>
+      </div>
+
+      {/* SECCIÓN DESTACADA: PAQUETES OFICIALES DE DESCARGA Y DESPLIEGUE */}
+      <div className="bg-gradient-to-br from-[#001428] via-[#09223a] to-[#122e4d] p-5 rounded-2xl border border-amber-400/30 shadow-md text-white space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-400 text-[#001428] flex items-center justify-center font-bold shadow-xs">
+              <Package className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-black text-white">Paquetes de Descarga y Despliegue</h4>
+                <span className="text-[10px] font-black uppercase tracking-wider bg-amber-400 text-[#001428] px-2 py-0.5 rounded-full shadow-2xs">
+                  Actualizados
+                </span>
+              </div>
+              <p className="text-[11px] text-[#d3e4fe]">
+                Descargá el APK para celulares Android, el código fuente en ZIP o los archivos de producción para Docker
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Card 1: APK Android */}
+          <div className="p-4 rounded-xl bg-white/10 border border-white/10 hover:border-emerald-400/60 transition-all flex flex-col justify-between space-y-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-emerald-300 flex items-center gap-1.5">
+                  <Smartphone className="w-4 h-4 text-emerald-400" />
+                  <span>Instalador Android (.APK)</span>
+                </span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 px-1.5 py-0.5 rounded font-mono">
+                  APK
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-200 leading-relaxed">
+                Paquete directo para instalar y actualizar en cualquier celular o tablet Android sin depender de tiendas externas.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <a
+                href="/oficios-valle-de-lerma.apk"
+                download="oficios-valle-de-lerma.apk"
+                className="flex-1 py-2 px-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                title="Descargar archivo APK directamente"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Bajar .APK</span>
+              </a>
+              {onOpenApkModal && (
+                <button
+                  type="button"
+                  onClick={onOpenApkModal}
+                  className="py-2 px-2.5 bg-white/15 hover:bg-white/25 active:scale-95 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  title="Ver instrucciones de instalación paso a paso"
+                >
+                  Guía
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Card 2: ZIP Código Fuente */}
+          <div className="p-4 rounded-xl bg-white/10 border border-white/10 hover:border-amber-400/60 transition-all flex flex-col justify-between space-y-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-amber-400" />
+                  <span>Código Fuente Completo</span>
+                </span>
+                <span className="text-[10px] bg-amber-500/20 text-amber-200 border border-amber-400/30 px-1.5 py-0.5 rounded font-mono">
+                  ZIP
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-200 leading-relaxed">
+                Archivo ZIP completo con todo el código fuente React, Vite, Tailwind CSS, configuración de Nginx y Dockerfile.
+              </p>
+            </div>
+
+            <div className="pt-1">
+              <a
+                href="/oficios-valle-de-lerma.zip"
+                download="oficios-valle-de-lerma.zip"
+                className="w-full py-2 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-[#001428] text-xs font-black rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                title="Descargar archivo ZIP de la aplicación completa"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Descargar ZIP del Proyecto</span>
+              </a>
+            </div>
+          </div>
+
+          {/* Card 3: Docker Compose */}
+          <div className="p-4 rounded-xl bg-white/10 border border-white/10 hover:border-blue-400/60 transition-all flex flex-col justify-between space-y-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-blue-300 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-blue-400" />
+                  <span>Docker para Servidor VPS</span>
+                </span>
+                <span className="text-[10px] bg-blue-500/20 text-blue-200 border border-blue-400/30 px-1.5 py-0.5 rounded font-mono">
+                  YML
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-200 leading-relaxed">
+                Archivos docker-compose.yml y nginx.conf listos para desplegar en tu propio VPS con 1 solo comando.
+              </p>
+            </div>
+
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenDockerModal) {
+                    onOpenDockerModal();
+                  } else {
+                    const blob = new Blob([`version: '3.8'\nservices:\n  web:\n    build: .\n    ports:\n      - "80:80"\n`], { type: 'text/yaml' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'docker-compose.yml';
+                    a.click();
+                  }
+                }}
+                className="w-full py-2 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                title="Abrir asistente de despliegue Docker o descargar docker-compose.yml"
+              >
+                <Layers className="w-3.5 h-3.5 text-blue-200" />
+                <span>Ver y Bajar Docker</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

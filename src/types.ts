@@ -120,6 +120,11 @@ export interface ServiceRequest {
   completedJobPhoto?: string;
   completedJobComment?: string;
   deviceId?: string; // Identificador único de dispositivo creador
+  paymentStatus?: 'pendiente' | 'confirmado';
+  paymentMethod?: 'efectivo' | 'transferencia' | 'mercado_pago';
+  paymentConfirmedAt?: string;
+  paymentConfirmedBy?: string;
+  paymentReceiptNumber?: string;
 }
 
 export interface UserProfile {
