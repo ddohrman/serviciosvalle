@@ -44,6 +44,7 @@ import {
 import { Professional, ServiceCategory, Neighborhood } from '../types';
 import { APP_LOGO_URL, isWorkerInNeighborhood, isWorkerMatchingSearch } from '../data/mockData';
 import { FeaturedWorkersModal } from './FeaturedWorkersModal';
+import { VoiceSearchModal } from './VoiceSearchModal';
 
 interface ExploreScreenProps {
   professionals: Professional[];
@@ -136,104 +137,8 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
 }) => {
   const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
   const [isFeaturedModalOpen, setIsFeaturedModalOpen] = useState(false);
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [showAllWorkersManual, setShowAllWorkersManual] = useState(false);
-
-  // Web Speech Recognition API state
-  const [isListening, setIsListening] = useState(false);
-  const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-  const recognitionRef = React.useRef<any>(null);
-
-  // Clean up recognition instance when unmounting
-  React.useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch {
-          // ignore
-        }
-      }
-    };
-  }, []);
-
-  const handleToggleVoiceSearch = () => {
-    const SpeechRec = 
-      (window as any).SpeechRecognition || 
-      (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRec) {
-      setVoiceError('El reconocimiento de voz no está soportado en este navegador. Probá abriendo la app en Google Chrome o Microsoft Edge.');
-      setTimeout(() => setVoiceError(null), 4000);
-      return;
-    }
-
-    if (isListening) {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch {
-          // ignore
-        }
-      }
-      setIsListening(false);
-      setVoiceFeedback(null);
-      return;
-    }
-
-    try {
-      setVoiceError(null);
-      const recognition = new SpeechRec();
-      recognitionRef.current = recognition;
-      recognition.lang = 'es-AR';
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-
-      recognition.onstart = () => {
-        setIsListening(true);
-        setVoiceFeedback('Escuchando... Decí el oficio o servicio (ej: "Plomero", "Electricista")');
-      };
-
-      recognition.onresult = (event: any) => {
-        let transcript = '';
-        for (let i = 0; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
-        }
-        if (transcript.trim()) {
-          onSearchChange(transcript.trim());
-          setVoiceFeedback(`Buscando: "${transcript.trim()}"`);
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error:', event.error);
-        setIsListening(false);
-        if (event.error === 'not-allowed') {
-          setVoiceError('Permiso de micrófono denegado. Permití el acceso al micrófono en tu navegador para buscar por voz.');
-        } else if (event.error === 'no-speech') {
-          setVoiceError('No se detectó voz. Por favor intentá de nuevo.');
-        } else if (event.error !== 'aborted') {
-          setVoiceError('Error al escuchar. Por favor reintentá.');
-        }
-        setTimeout(() => setVoiceError(null), 4000);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-        setTimeout(() => {
-          setVoiceFeedback(null);
-        }, 2500);
-      };
-
-      recognition.start();
-    } catch (err) {
-      console.error('Error starting speech recognition:', err);
-      setIsListening(false);
-      setVoiceError('No se pudo acceder al micrófono del dispositivo.');
-      setTimeout(() => setVoiceError(null), 3000);
-    }
-  };
 
   // Resolved department name
   const currentDeptObj = neighborhoods.find(n => 
@@ -426,63 +331,18 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
               </button>
             )}
 
-            {/* Botón de Reconocimiento de Voz (Web Speech Recognition API) */}
+            {/* Botón de Reconocimiento de Voz - Abre VoiceSearchModal */}
             <button
               type="button"
-              onClick={handleToggleVoiceSearch}
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-                isListening
-                  ? 'bg-red-500 text-white shadow-md shadow-red-500/40 ring-2 ring-red-300 animate-pulse'
-                  : 'bg-[#eff4ff] text-[#9e4300] hover:bg-[#ffdbcb]/40 border border-[#d3e4fe]'
-              }`}
-              title={isListening ? 'Detener reconocimiento de voz' : 'Buscar mediante comando de voz'}
-              aria-label={isListening ? 'Detener reconocimiento de voz' : 'Iniciar búsqueda por voz'}
+              onClick={() => setIsVoiceModalOpen(true)}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 bg-[#eff4ff] text-[#9e4300] hover:bg-[#ffdbcb]/40 border border-[#d3e4fe] shadow-2xs"
+              title="Buscar mediante comando de voz o sugerencias rápidas"
+              aria-label="Abrir búsqueda por voz"
             >
-              {isListening ? (
-                <MicOff className="w-4 h-4" />
-              ) : (
-                <Mic className="w-4 h-4" />
-              )}
+              <Mic className="w-4 h-4" />
             </button>
           </div>
         </div>
-
-        {/* Indicador de Escucha de Voz en Vivo */}
-        {isListening && (
-          <div className="mt-2 p-2.5 rounded-xl bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 flex items-center justify-between gap-2 shadow-xs animate-in fade-in slide-in-from-top-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="relative flex h-3 w-3 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-              </span>
-              <span className="text-xs font-bold text-red-700 truncate">
-                {voiceFeedback || 'Escuchando... Hablá ahora'}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={handleToggleVoiceSearch}
-              className="px-2.5 py-0.5 rounded-md bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold cursor-pointer shrink-0 transition-colors"
-            >
-              Detener
-            </button>
-          </div>
-        )}
-
-        {/* Mensaje de error o soporte de voz si ocurriera */}
-        {voiceError && (
-          <div className="mt-2 p-2 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-2 text-xs text-amber-800">
-            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span className="flex-1">{voiceError}</span>
-            <button
-              type="button"
-              onClick={() => setVoiceError(null)}
-              className="text-amber-600 hover:text-amber-900 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
 
         {/* 2. Filtros de Departamentos y Servicios en Combo Box (Formato muy compacto) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2.5">
@@ -1093,6 +953,14 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
             onContactWhatsApp(worker);
           }
         }}
+      />
+
+      {/* Modal Dedicado de Búsqueda por Voz y Sugerencias Rápidas */}
+      <VoiceSearchModal
+        isOpen={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
+        onApplySearch={(query) => onSearchChange(query)}
+        currentQuery={searchQuery}
       />
     </div>
   );
