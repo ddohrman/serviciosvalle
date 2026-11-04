@@ -42,16 +42,24 @@ import {
   ListFilter,
   Tag,
   Layers,
-  Smartphone
+  Smartphone,
+  ZoomIn,
+  Briefcase,
+  DollarSign,
+  Crosshair,
+  Navigation,
+  Compass
 } from 'lucide-react';
-import { Professional, ServiceCategory, Neighborhood, CompletedJob, AppAdvertisement, AppAnalytics, ServiceRequest, TrialRecord } from '../types';
-import { getProSubscriptionDetails, normalizePhoneNumber } from '../utils/subscriptionUtils';
+import { Professional, ServiceCategory, Neighborhood, CompletedJob, AppAdvertisement, AppAnalytics, ServiceRequest, UsefulPhone } from '../types';
 import { AdminAdvertisementConfig } from './AdminAdvertisementConfig';
 import { AdminStatsDashboard } from './AdminStatsDashboard';
 import { AdminCategoriesNeighborhoodsConfig } from './AdminCategoriesNeighborhoodsConfig';
+import { AdminUsefulPhonesConfig } from './AdminUsefulPhonesConfig';
 import { DockerDeployModal } from './DockerDeployModal';
 import { AdminApkModal } from './AdminApkModal';
 import { DEFAULT_ANALYTICS } from '../lib/firebase';
+import { DniQualityBadge } from './DniQualityBadge';
+import { analyzeDniImageQuality, DniQualityResult } from '../utils/imageQualityChecker';
 
 
 interface SerProScreenProps {
@@ -59,10 +67,11 @@ interface SerProScreenProps {
   neighborhoods: Neighborhood[];
   onSaveCategories?: (updated: ServiceCategory[]) => void;
   onSaveNeighborhoods?: (updated: Neighborhood[]) => void;
+  usefulPhones?: UsefulPhone[];
+  onSaveUsefulPhones?: (updated: UsefulPhone[]) => void;
   professionals: Professional[];
   requests?: ServiceRequest[];
   analytics?: AppAnalytics;
-  trialRecords?: TrialRecord[];
   loggedInPro?: Professional | null;
   initialView?: 'registro' | 'login' | 'panel-aprobacion';
   adminTrigger?: number;
@@ -89,8 +98,7 @@ interface SerProScreenProps {
   onUpdateSubscription?: (
     proId: string, 
     plan: 'prueba_gratuita' | 'abono_mensual' | 'abono_anual', 
-    status: 'activa' | 'caducada',
-    paymentDate?: string
+    status: 'activa' | 'caducada'
   ) => void;
   onShowExpiredModal?: (pro: Professional) => void;
   isDevAdmin?: boolean;
@@ -103,10 +111,11 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
   neighborhoods,
   onSaveCategories,
   onSaveNeighborhoods,
+  usefulPhones,
+  onSaveUsefulPhones,
   professionals,
   requests = [],
   analytics = DEFAULT_ANALYTICS,
-  trialRecords = [],
   loggedInPro,
   initialView,
   adminTrigger,
@@ -135,9 +144,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
   // Navigation between registration, login, profile, and approval panel
   const [activeView, setActiveView] = useState<'registro' | 'login' | 'panel-aprobacion'>(initialView || 'registro');
   const [approvalFilter, setApprovalFilter] = useState<'pendiente' | 'aprobado' | 'prueba_activa' | 'prueba_caducada' | 'continuando_uso' | 'todos'>('pendiente');
-  const [adminSubSection, setAdminSubSection] = useState<'prestadores' | 'publicidad' | 'estadisticas' | 'rubros-localidades' | 'antifraude'>('prestadores');
-  const [paymentDateInputs, setPaymentDateInputs] = useState<Record<string, string>>({});
-  const [antifraudeSearchQuery, setAntifraudeSearchQuery] = useState('');
+  const [adminSubSection, setAdminSubSection] = useState<'prestadores' | 'publicidad' | 'estadisticas' | 'rubros-localidades' | 'telefonos-utiles'>('prestadores');
 
   // Ad counts for admin sub-section badge
   const currentAds = advertisements || (advertisement ? [advertisement] : []);
@@ -173,20 +180,334 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
   const [certificatePhotoUrl, setCertificatePhotoUrl] = useState('');
   const [isUploadingDni, setIsUploadingDni] = useState(false);
   const [isUploadingCert, setIsUploadingCert] = useState(false);
+  const [dniQualityResult, setDniQualityResult] = useState<DniQualityResult | null>(null);
+  const [isAnalyzingDniQuality, setIsAnalyzingDniQuality] = useState(false);
+
+  // Estados de calidad visual de DNI para el panel del prestador logueado
+  const [workerDniQuality, setWorkerDniQuality] = useState<DniQualityResult | null>(null);
+  const [isAnalyzingWorkerDni, setIsAnalyzingWorkerDni] = useState(false);
+  const [isUpdatingWorkerDni, setIsUpdatingWorkerDni] = useState(false);
+  const [newWorkerDniUrl, setNewWorkerDniUrl] = useState('');
+  const [newWorkerDniQuality, setNewWorkerDniQuality] = useState<DniQualityResult | null>(null);
+  const [isAnalyzingNewWorkerDni, setIsAnalyzingNewWorkerDni] = useState(false);
+  const [workerDniUpdateSuccess, setWorkerDniUpdateSuccess] = useState<string | null>(null);
+
+  // Estado de análisis para el modal de vista de documento
+  const [viewingModalDniQuality, setViewingModalDniQuality] = useState<DniQualityResult | null>(null);
+  const [isAnalyzingModalDni, setIsAnalyzingModalDni] = useState(false);
+
   const [viewingDocumentModal, setViewingDocumentModal] = useState<{ title: string; imageUrl: string } | null>(null);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
   const [isDockerModalOpen, setIsDockerModalOpen] = useState(false);
   const [isApkModalOpen, setIsApkModalOpen] = useState(false);
 
-  // File upload handlers for DNI and Certification
+  // WhatsApp verification state
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [verificationCodeSent, setVerificationCodeSent] = useState(false);
+  const [generatedVerificationCode, setGeneratedVerificationCode] = useState('');
+  const [inputVerificationCode, setInputVerificationCode] = useState('');
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+
+  // Coverage zones (localities where the professional is available to work)
+  const [coverageZones, setCoverageZones] = useState<string[]>(['Cerrillos']);
+
+  // GPS Geolocation state for auto-suggesting Valle de Lerma town
+  const [isLocatingUser, setIsLocatingUser] = useState(false);
+  const [locationDetectedInfo, setLocationDetectedInfo] = useState<{
+    locality: string;
+    distanceKm: number;
+    accuracyMeters?: number;
+    latitude?: number;
+    longitude?: number;
+    message?: string;
+  } | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+
+  // Live camera selfie state (camera-only capture, stamped timestamp, anti-gallery)
+  const [liveSelfieUrl, setLiveSelfieUrl] = useState('');
+  const [photoTakenAt, setPhotoTakenAt] = useState<string | null>(null);
+  const [photoCaptureTimestamp, setPhotoCaptureTimestamp] = useState<number | null>(null);
+  const [photoValidationStatus, setPhotoValidationStatus] = useState<'valid' | 'gallery_rejected' | 'expired' | null>(null);
+  const [photoValidationError, setPhotoValidationError] = useState<string | null>(null);
+
+  const [isLiveCameraOpen, setIsLiveCameraOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = React.useRef<HTMLVideoElement>(null);
+
+  // Valle de Lerma towns coordinates
+  const VALLE_DE_LERMA_TOWNS = [
+    { name: 'Cerrillos', lat: -24.8983, lng: -65.4850 },
+    { name: 'La Merced', lat: -24.9664, lng: -65.4883 },
+    { name: 'El Carril', lat: -25.0742, lng: -65.5511 },
+    { name: 'Chicoana', lat: -25.1050, lng: -65.5342 },
+    { name: 'Campo Quijano', lat: -24.9125, lng: -65.6417 },
+    { name: 'Rosario de Lerma', lat: -24.9856, lng: -65.5806 },
+    { name: 'San Agustín', lat: -24.9928, lng: -65.4219 },
+    { name: 'La Silleta', lat: -24.8722, lng: -65.5786 },
+    { name: 'Coronel Moldes', lat: -25.2811, lng: -65.4794 },
+    { name: 'Salta Capital', lat: -24.7821, lng: -65.4232 }
+  ];
+
+  const calculateDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371; // km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const handleDetectUserLocation = () => {
+    setLocationError(null);
+    setLocationDetectedInfo(null);
+
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+      setLocationError('Tu dispositivo o navegador no soporta geolocalización GPS. Podés elegir tu localidad de la lista.');
+      return;
+    }
+
+    setIsLocatingUser(true);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsLocatingUser(false);
+        const { latitude, longitude, accuracy } = pos.coords;
+
+        // Buscar la localidad más cercana del Valle de Lerma
+        let nearestTown = VALLE_DE_LERMA_TOWNS[0];
+        let minDistance = calculateDistanceKm(latitude, longitude, nearestTown.lat, nearestTown.lng);
+
+        for (const town of VALLE_DE_LERMA_TOWNS) {
+          const dist = calculateDistanceKm(latitude, longitude, town.lat, town.lng);
+          if (dist < minDistance) {
+            minDistance = dist;
+            nearestTown = town;
+          }
+        }
+
+        // Buscar coincidencia en la lista de barrios/localidades registradas
+        const matchedNeighborhood = neighborhoods.find(n => 
+          n.name.toLowerCase() === nearestTown.name.toLowerCase()
+        ) || neighborhoods.find(n => 
+          nearestTown.name.toLowerCase().includes(n.name.toLowerCase()) || 
+          n.name.toLowerCase().includes(nearestTown.name.toLowerCase())
+        );
+
+        const chosenLocality = matchedNeighborhood ? matchedNeighborhood.name : nearestTown.name;
+
+        // Auto-seleccionar localidad sugerida
+        setNeighborhood(chosenLocality);
+        if (!coverageZones.includes(chosenLocality)) {
+          setCoverageZones(prev => [...prev, chosenLocality]);
+        }
+
+        const isClose = minDistance <= 35;
+        const msg = isClose
+          ? `Localidad detectada con éxito: ${chosenLocality} (distancia estimada: ${minDistance < 1 ? Math.round(minDistance * 1000) + ' metros' : minDistance.toFixed(1) + ' km'}, precisión GPS: ±${Math.round(accuracy)}m).`
+          : `Coordenadas recibidas (Lat: ${latitude.toFixed(2)}, Lon: ${longitude.toFixed(2)}). Localidad más cercana en el Valle de Lerma: ${chosenLocality} (${minDistance.toFixed(0)} km).`;
+
+        setLocationDetectedInfo({
+          locality: chosenLocality,
+          distanceKm: minDistance,
+          accuracyMeters: accuracy,
+          latitude,
+          longitude,
+          message: msg
+        });
+      },
+      (err) => {
+        setIsLocatingUser(false);
+        let errorMsg = 'No se pudo obtener la ubicación GPS.';
+        if (err.code === err.PERMISSION_DENIED) {
+          errorMsg = 'Permiso denegado por el navegador. Habilitá el permiso de ubicación o seleccioná tu localidad manualmente.';
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          errorMsg = 'Señal de ubicación no disponible en este momento. Seleccioná tu localidad de la lista.';
+        } else if (err.code === err.TIMEOUT) {
+          errorMsg = 'Tiempo de espera agotado al consultar el GPS. Intentá nuevamente o elegí de la lista.';
+        }
+        setLocationError(errorMsg);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 30000
+      }
+    );
+  };
+
+  // Cleanup camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [cameraStream]);
+
+  // Connect stream to video element when modal opens
+  useEffect(() => {
+    if (isLiveCameraOpen && cameraStream && videoRef.current) {
+      videoRef.current.srcObject = cameraStream;
+    }
+  }, [isLiveCameraOpen, cameraStream]);
+
+  const startLiveCamera = async () => {
+    setCameraError(null);
+    setIsLiveCameraOpen(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
+        audio: false
+      });
+      setCameraStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+    } catch (err: any) {
+      setCameraError('No se pudo acceder a la cámara en vivo. Usá el botón para abrir la cámara de tu celular.');
+    }
+  };
+
+  const stopLiveCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setIsLiveCameraOpen(false);
+  };
+
+  const captureFromVideo = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 480;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      const now = Date.now();
+      setLiveSelfieUrl(dataUrl);
+      setPhotoTakenAt(new Date(now).toISOString());
+      setPhotoCaptureTimestamp(now);
+      setPhotoValidationStatus('valid');
+      setPhotoValidationError(null);
+    }
+    stopLiveCamera();
+  };
+
+  const handleNativeCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const now = Date.now();
+    const fileModified = file.lastModified;
+    const ageSeconds = (now - fileModified) / 1000;
+    const ageMinutes = ageSeconds / 60;
+
+    const fileDate = new Date(fileModified);
+    const today = new Date(now);
+    const isSameDay = fileDate.getFullYear() === today.getFullYear() &&
+                      fileDate.getMonth() === today.getMonth() &&
+                      fileDate.getDate() === today.getDate();
+
+    // VALIDACIÓN ESTRICTA EN TIEMPO REAL:
+    // Si la foto tiene más de 5 minutos de antigüedad o fue tomada en un día previo, o fecha en el futuro
+    if (!isSameDay || ageMinutes > 5 || fileModified > now + 60000) {
+      setLiveSelfieUrl('');
+      setPhotoTakenAt(null);
+      setPhotoCaptureTimestamp(null);
+      setPhotoValidationStatus('gallery_rejected');
+      
+      const timeDetail = !isSameDay 
+        ? `guardada el ${fileDate.toLocaleDateString('es-AR')}`
+        : `tomada hace ${Math.round(ageMinutes)} minutos`;
+
+      setPhotoValidationError(
+        `🚫 ARCHIVO RECHAZADO: Se detectó una foto preexistente de la galería (${timeDetail}). Por política estricta de seguridad y prevención de fraudes, está bloqueada la carga de fotos de la galería. Debés tomar una foto en vivo en este preciso instante con la cámara del celular.`
+      );
+      e.target.value = '';
+      return;
+    }
+
+    // Foto tomada en tiempo real verificada
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setLiveSelfieUrl(event.target?.result as string);
+      setPhotoTakenAt(new Date(now).toISOString());
+      setPhotoCaptureTimestamp(now);
+      setPhotoValidationStatus('valid');
+      setPhotoValidationError(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSendVerificationCode = () => {
+    setVerificationError(null);
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (cleanPhone.length < 7) {
+      setVerificationError('Ingresá un número de celular de al menos 7 dígitos (ej: 387 5286914).');
+      return;
+    }
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    setGeneratedVerificationCode(code);
+    setVerificationCodeSent(true);
+    // WhatsApp URL to receive the code
+    const fullPhone = cleanPhone.startsWith('54') ? cleanPhone : `549${cleanPhone}`;
+    const msg = encodeURIComponent(`Tu código de verificación para Oficios Valle de Lerma es: *${code}*`);
+    window.open(`https://wa.me/${fullPhone}?text=${msg}`, '_blank');
+  };
+
+  const handleConfirmVerificationCode = () => {
+    setVerificationError(null);
+    if (!inputVerificationCode.trim()) {
+      setVerificationError('Ingresá el código de 6 dígitos.');
+      return;
+    }
+    if (inputVerificationCode.trim() === generatedVerificationCode) {
+      setPhoneVerified(true);
+      setVerificationError(null);
+    } else {
+      setVerificationError('El código ingresado no coincide con el enviado a tu WhatsApp. Intentá nuevamente.');
+    }
+  };
+
+  const toggleCoverageZone = (zoneName: string) => {
+    setCoverageZones(prev => {
+      if (prev.includes(zoneName)) {
+        // don't allow empty if it's the only one
+        if (prev.length === 1) return prev;
+        return prev.filter(z => z !== zoneName);
+      } else {
+        return [...prev, zoneName];
+      }
+    });
+  };
+
+  // File upload handlers for DNI and Certification with real-time visual legibility analysis
   const handleDniFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setIsUploadingDni(true);
+      setIsAnalyzingDniQuality(true);
       const reader = new FileReader();
-      reader.onload = (event) => {
-        setDniPhotoUrl(event.target?.result as string);
+      reader.onload = async (event) => {
+        const resultUrl = event.target?.result as string;
+        setDniPhotoUrl(resultUrl);
         setIsUploadingDni(false);
+        try {
+          const quality = await analyzeDniImageQuality(resultUrl);
+          setDniQualityResult(quality);
+        } catch (err) {
+          console.warn('Error al analizar calidad de DNI:', err);
+        } finally {
+          setIsAnalyzingDniQuality(false);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -221,7 +542,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
       : loggedInPro?.searchKeywordsText || (loggedInPro?.searchKeywords || []).join(', ')
   );
 
-  // Sync edit state whenever loggedInPro updates
+  // Sync edit state & analyze worker DNI quality whenever loggedInPro updates
   useEffect(() => {
     if (loggedInPro) {
       setEditPhone(loggedInPro.phone || '');
@@ -233,8 +554,100 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
         ? loggedInPro.searchKeywords.join(', ')
         : (loggedInPro.searchKeywordsText || '');
       setEditKeywordsText(kws);
+
+      // Automated visual quality audit for worker's DNI photo
+      if (loggedInPro.dniPhotoUrl) {
+        let isMounted = true;
+        setIsAnalyzingWorkerDni(true);
+        analyzeDniImageQuality(loggedInPro.dniPhotoUrl)
+          .then((result) => {
+            if (isMounted) {
+              setWorkerDniQuality(result);
+              setIsAnalyzingWorkerDni(false);
+            }
+          })
+          .catch(() => {
+            if (isMounted) setIsAnalyzingWorkerDni(false);
+          });
+        return () => {
+          isMounted = false;
+        };
+      } else {
+        setWorkerDniQuality(null);
+      }
     }
-  }, [loggedInPro]);
+  }, [loggedInPro?.id, loggedInPro?.dniPhotoUrl]);
+
+  // Handle viewing document modal quality check
+  useEffect(() => {
+    if (viewingDocumentModal?.imageUrl && viewingDocumentModal.title.toLowerCase().includes('dni')) {
+      let isMounted = true;
+      setIsAnalyzingModalDni(true);
+      analyzeDniImageQuality(viewingDocumentModal.imageUrl)
+        .then((result) => {
+          if (isMounted) {
+            setViewingModalDniQuality(result);
+            setIsAnalyzingModalDni(false);
+          }
+        })
+        .catch(() => {
+          if (isMounted) setIsAnalyzingModalDni(false);
+        });
+      return () => {
+        isMounted = false;
+      };
+    } else {
+      setViewingModalDniQuality(null);
+    }
+  }, [viewingDocumentModal?.imageUrl]);
+
+  // Handler for worker re-uploading / changing their DNI photo from their dashboard
+  const handleWorkerNewDniFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setIsAnalyzingNewWorkerDni(true);
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const resultUrl = event.target?.result as string;
+        setNewWorkerDniUrl(resultUrl);
+        try {
+          const quality = await analyzeDniImageQuality(resultUrl);
+          setNewWorkerDniQuality(quality);
+        } catch (err) {
+          console.warn('Error al analizar foto:', err);
+        } finally {
+          setIsAnalyzingNewWorkerDni(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveWorkerDniUpdate = () => {
+    if (!loggedInPro || !newWorkerDniUrl || !onUpdateProfessionalProfile) return;
+    const updated: Professional = {
+      ...loggedInPro,
+      dniPhotoUrl: newWorkerDniUrl,
+      dniQuality: newWorkerDniQuality ? {
+        isLegible: newWorkerDniQuality.isLegible,
+        status: newWorkerDniQuality.status,
+        sharpnessScore: newWorkerDniQuality.sharpnessScore,
+        brightnessScore: newWorkerDniQuality.brightnessScore,
+        isBlurry: newWorkerDniQuality.isBlurry,
+        isLowLight: newWorkerDniQuality.isLowLight,
+        isOverexposed: newWorkerDniQuality.isOverexposed,
+        analyzedAt: new Date().toISOString()
+      } : undefined,
+      approvalStatus: 'pendiente' // Flagged for administrator re-approval with the new image
+    };
+    onUpdateProfessionalProfile(updated);
+    setWorkerDniQuality(newWorkerDniQuality);
+    setIsUpdatingWorkerDni(false);
+    setNewWorkerDniUrl('');
+    setNewWorkerDniQuality(null);
+    setWorkerDniUpdateSuccess('¡Foto de DNI actualizada correctamente! Enviada a la administración para su validación oficial.');
+    setTimeout(() => setWorkerDniUpdateSuccess(null), 5000);
+  };
 
   // Completed job upload modal/state for logged in provider
   const [isAddingJob, setIsAddingJob] = useState(false);
@@ -243,6 +656,16 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
   const [newJobNeighborhood, setNewJobNeighborhood] = useState(loggedInPro?.neighborhood || 'Cerrillos');
   const [newJobComment, setNewJobComment] = useState('');
   const [newJobPhotoUrl, setNewJobPhotoUrl] = useState('');
+  const [selectedProPhotoModal, setSelectedProPhotoModal] = useState<{
+    id: string;
+    title: string;
+    clientName: string;
+    neighborhood: string;
+    photoUrl: string;
+    comment?: string;
+    contractNumber?: string;
+    date?: string;
+  } | null>(null);
 
   // Status after submission
   const [submittedPro, setSubmittedPro] = useState<Professional | null>(null);
@@ -275,19 +698,42 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
       return;
     }
 
-    // Verificación en el padrón antifraude: No permitir registrarse gratis con el mismo celular
-    const normPhone = normalizePhoneNumber(phone);
-    const alreadyUsed = trialRecords.find(r => r.normalizedPhone === normPhone || normalizePhoneNumber(r.phone) === normPhone);
-    const existingProWithPhone = professionals.find(p => (p.phoneNormalized || normalizePhoneNumber(p.phone)) === normPhone);
+    // 1. WhatsApp verification check
+    if (!phoneVerified) {
+      setRegistrationError('Es obligatorio verificar tu número de WhatsApp con el código de 6 dígitos.');
+      return;
+    }
 
-    if (alreadyUsed || existingProWithPhone) {
-      const regName = alreadyUsed?.name || existingProWithPhone?.name || 'un prestador';
-      const regTrade = alreadyUsed?.trade || existingProWithPhone?.trade || 'servicio';
-      const errorMsg = `El número ${phone} ya utilizó los 30 días de prueba gratuita (${regName} - ${regTrade}). No es posible registrarse gratis nuevamente. Para abonar comunicate al 3875286914.`;
-      setRegistrationError(errorMsg);
-      if (onShowExpiredModal) {
-        onShowExpiredModal(existingProWithPhone || ({ name: regName, phone, trade: regTrade, subscriptionPlan: 'prueba_gratuita' } as any));
-      }
+    // 2. Mandatory live camera photo check with real-time system timestamp comparison
+    if (!liveSelfieUrl || !photoTakenAt) {
+      setRegistrationError('Es obligatorio tomarte una foto actual en vivo con la cámara del celular.');
+      return;
+    }
+
+    if (photoValidationStatus === 'gallery_rejected') {
+      setRegistrationError('La foto fue rechazada por provenir de la galería. Por seguridad, debés tomarla en tiempo real con la cámara.');
+      return;
+    }
+
+    // Verify photo date strictly matches registration date (same day)
+    const photoDate = new Date(photoTakenAt);
+    const today = new Date();
+    if (photoDate.getFullYear() !== today.getFullYear() ||
+        photoDate.getMonth() !== today.getMonth() ||
+        photoDate.getDate() !== today.getDate()) {
+      setRegistrationError('La fecha de captura de la foto no coincide con la fecha de alta de hoy. Se requiere una foto tomada hoy en vivo.');
+      return;
+    }
+
+    // Verify photo was captured within the last 15 minutes (real-time enforcement)
+    if (photoCaptureTimestamp && (Date.now() - photoCaptureTimestamp > 15 * 60 * 1000)) {
+      setRegistrationError('La captura de la foto ha expirado (más de 15 minutos). Por favor volvé a capturarla con la cámara para validar tu presencia en tiempo real.');
+      return;
+    }
+
+    // 3. Mandatory DNI photo check
+    if (!dniPhotoUrl) {
+      setRegistrationError('Es obligatorio subir o fotografiar la foto de tu DNI (frente o dorso).');
       return;
     }
 
@@ -296,13 +742,17 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
     const now = new Date();
     const trialEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
+    const finalCoverage = coverageZones.includes(neighborhood) ? coverageZones : [neighborhood, ...coverageZones];
+
     const newPro: Professional = {
       id: proId,
       name: name.trim(),
-      avatar: 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=400&q=80',
+      avatar: liveSelfieUrl,
+      photoTakenAt: photoTakenAt,
       trade: trade,
       categoryId: categoryId,
       neighborhood: neighborhood,
+      coverageZones: finalCoverage,
       rating: 5.0,
       reviewCount: 0,
       verified: true,
@@ -311,15 +761,25 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
       emergencyDuty: emergencyDuty,
       quoteWithoutCharge: quoteWithoutCharge,
       matricula: (hasCertification && matricula.trim()) ? matricula.trim() : undefined,
-      certificatePhotoUrl: (hasCertification && certificatePhotoUrl) ? certificatePhotoUrl : undefined,
       dniNumber: dniNumber.trim() ? dniNumber.trim() : undefined,
       dniPhotoUrl: dniPhotoUrl || undefined,
-      approvalStatus: 'aprobado',
+      dniQuality: dniQualityResult ? {
+        isLegible: dniQualityResult.isLegible,
+        status: dniQualityResult.status,
+        sharpnessScore: dniQualityResult.sharpnessScore,
+        brightnessScore: dniQualityResult.brightnessScore,
+        isBlurry: dniQualityResult.isBlurry,
+        isLowLight: dniQualityResult.isLowLight,
+        isOverexposed: dniQualityResult.isOverexposed,
+        analyzedAt: new Date().toISOString()
+      } : undefined,
+      approvalStatus: 'pendiente',
       submissionDate: 'Hoy, hace instantes',
       phone: phone.startsWith('+54') ? phone : `+54 9 ${phone}`,
       whatsappNumber: `549${cleanPhone}`,
+      phoneVerified: true,
       experienceYears: experienceYears,
-      bio: bio.trim() || `Profesional de oficio radicado en ${neighborhood} y con cobertura en todo el Valle de Lerma. Trabajo garantizado y atención personalizada.`,
+      bio: bio.trim() || `Profesional de oficio radicado en ${neighborhood} con cobertura en ${finalCoverage.join(', ')}. Trabajo garantizado y atención personalizada.`,
       guaranteeText: (hasCertification && matricula.trim()) ? 'Matrícula y constancia habilitante verificada' : 'Garantía vecinal de mano de obra',
       priceTagText: quoteWithoutCharge ? 'Presupuesto sin cargo' : 'Consulta personalizada',
       palabrasClave: searchKeywordsText
@@ -400,13 +860,15 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
     e.preventDefault();
     if (!loggedInPro || !newJobTitle.trim()) return;
 
+    const finalPhoto = newJobPhotoUrl || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80';
     const job: CompletedJob = {
       id: `job-${Date.now()}`,
       title: newJobTitle.trim(),
       clientName: newJobClient.trim() || 'Vecino del Valle de Lerma',
       neighborhood: newJobNeighborhood,
       date: 'Reciente',
-      photoUrl: newJobPhotoUrl || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80',
+      photoUrl: finalPhoto,
+      imageUrl: finalPhoto,
       comment: newJobComment.trim() || 'Trabajo finalizado con conformidad del cliente.',
       contractNumber: `VALLE-${Math.floor(1000 + Math.random() * 9000)}`,
       verifiedByApp: true
@@ -424,42 +886,42 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
   const pendingPros = professionals.filter(p => p.approvalStatus === 'pendiente');
   const approvedPros = professionals.filter(p => !p.approvalStatus || p.approvalStatus === 'aprobado');
 
-  // Breakdown for statistics and filters using getProSubscriptionDetails
+  // Breakdown for statistics and filters
   const trialActivePros = professionals.filter(p => {
-    const details = getProSubscriptionDetails(p);
-    return !details.isPaidPlan && !details.isExpired;
+    const isExpired = p.isTrialExpired || p.subscriptionStatus === 'caducada' || p.trialActive === false;
+    const isPaid = (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
+    return !isExpired && !isPaid;
   });
 
   const trialExpiredPros = professionals.filter(p => {
-    const details = getProSubscriptionDetails(p);
-    return !details.isPaidPlan && details.isExpired;
+    const isExpired = p.isTrialExpired || p.subscriptionStatus === 'caducada' || p.trialActive === false;
+    const isPaid = (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
+    return isExpired && !isPaid;
   });
 
   const continuingUsePros = professionals.filter(p => {
-    const details = getProSubscriptionDetails(p);
-    return details.isPaidPlan && !details.isExpired;
-  });
-
-  const expiredPaidPros = professionals.filter(p => {
-    const details = getProSubscriptionDetails(p);
-    return details.isPaidPlan && details.isExpired;
+    return (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
   });
 
   const displayedPros = professionals.filter(p => {
-    const details = getProSubscriptionDetails(p);
+    const isExpired = p.isTrialExpired || p.subscriptionStatus === 'caducada' || p.trialActive === false;
+    const isPaid = (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
+    const isTrialActive = !isExpired && !isPaid;
 
     if (approvalFilter === 'pendiente') return p.approvalStatus === 'pendiente';
     if (approvalFilter === 'aprobado') return !p.approvalStatus || p.approvalStatus === 'aprobado';
-    if (approvalFilter === 'prueba_activa') return !details.isPaidPlan && !details.isExpired;
-    if (approvalFilter === 'prueba_caducada') return !details.isPaidPlan && details.isExpired;
-    if (approvalFilter === 'continuando_uso') return details.isPaidPlan && !details.isExpired;
+    if (approvalFilter === 'prueba_activa') return isTrialActive;
+    if (approvalFilter === 'prueba_caducada') return isExpired && !isPaid;
+    if (approvalFilter === 'continuando_uso') return isPaid;
     return true;
   });
 
-  // Calculate remaining days for provider using precise subscription details
+  // Calculate remaining days for logged-in provider
   const getDaysRemaining = (pro: Professional) => {
-    const details = getProSubscriptionDetails(pro);
-    return details.daysRemaining;
+    if (!pro.trialEndDate) return 30;
+    const diff = new Date(pro.trialEndDate).getTime() - Date.now();
+    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    return Math.max(0, days);
   };
 
   return (
@@ -625,7 +1087,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#a3f69c] shrink-0" />
-                  <span className="text-[#eff4ff] text-[11px]">Contacto directo por WhatsApp (0% comisión)</span>
+                  <span className="text-[#eff4ff] text-[11px]">Chat privado directo y seguro en la app (0% comisión)</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#a3f69c] shrink-0" />
@@ -637,6 +1099,217 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* VALIDACIÓN VISUAL DE DNI: CONTROL DE NITIDEZ, ILUMINACIÓN Y ESTADO ADMIN */}
+          {/* ========================================================================= */}
+          <div className="bg-white p-5 rounded-2xl border border-[#e2e8f0] shadow-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#f1f5f9]">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#9e4300]" />
+                <div>
+                  <h3 className="font-bold text-sm text-[#001428]">
+                    Verificación de Identidad (DNI) y Legibilidad
+                  </h3>
+                  <p className="text-[11px] text-[#74777e]">
+                    Control visual automático de nitidez e iluminación antes de la aprobación del administrador
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Badge */}
+              <div>
+                {loggedInPro.approvalStatus === 'pendiente' ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-950 border border-amber-300">
+                    <Clock className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Pendiente de Aprobación por Administración</span>
+                  </span>
+                ) : loggedInPro.approvalStatus === 'rechazado' ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-900 border border-red-300">
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
+                    <span>Requiere Nueva Foto de DNI</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-950 border border-emerald-300">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Identidad Verificada Oficialmente</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {workerDniUpdateSuccess && (
+              <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{workerDniUpdateSuccess}</span>
+              </div>
+            )}
+
+            {/* DNI Photo preview and current quality status */}
+            {loggedInPro.dniPhotoUrl ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={loggedInPro.dniPhotoUrl}
+                      alt="DNI del prestador"
+                      onClick={() => setViewingDocumentModal({
+                        title: `Foto de DNI - ${loggedInPro.name}`,
+                        imageUrl: loggedInPro.dniPhotoUrl!
+                      })}
+                      className="w-16 h-12 object-cover rounded-lg border border-slate-300 shadow-2xs cursor-pointer hover:opacity-90"
+                      title="Tocá para ampliar"
+                    />
+                    <div>
+                      <p className="text-xs font-bold text-[#001428] flex items-center gap-1.5">
+                        <span>Foto de DNI Actual Registrada</span>
+                        <span
+                          className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.2 rounded border border-blue-200 font-semibold cursor-pointer"
+                          onClick={() => setViewingDocumentModal({ title: `Foto de DNI - ${loggedInPro.name}`, imageUrl: loggedInPro.dniPhotoUrl! })}
+                        >
+                          Ver grande
+                        </span>
+                      </p>
+                      {loggedInPro.dniNumber ? (
+                        <p className="text-[11px] text-[#43474d]">
+                          DNI N°: <strong>{loggedInPro.dniNumber}</strong>
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-[#74777e]">Número no especificado</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsUpdatingWorkerDni(!isUpdatingWorkerDni)}
+                    className="px-3 py-1.5 bg-white border border-[#c3c6ce] hover:border-[#9e4300] hover:text-[#9e4300] text-[#001428] text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-[#9e4300]" />
+                    <span>{isUpdatingWorkerDni ? 'Cerrar Actualizador' : 'Actualizar / Sacar Nueva Foto'}</span>
+                  </button>
+                </div>
+
+                {/* Real-time Quality Badge & Warnings */}
+                <DniQualityBadge
+                  quality={workerDniQuality}
+                  isAnalyzing={isAnalyzingWorkerDni}
+                  onRetake={() => setIsUpdatingWorkerDni(true)}
+                  showAdminAdvice={true}
+                />
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl border border-dashed border-amber-300 bg-amber-50/70 space-y-2">
+                <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-700" />
+                  <span>Aún no tenés foto de DNI cargada</span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  Para que el administrador Jorge Lopez apruebe definitivamente tu cuenta y otorgue la insignia oficial de confianza, es obligatorio adjuntar una foto legible de tu DNI.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsUpdatingWorkerDni(true)}
+                  className="px-3 py-2 bg-[#9e4300] hover:bg-[#853900] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Subir o Tomar Foto de DNI Ahora</span>
+                </button>
+              </div>
+            )}
+
+            {/* Inline Editor to Re-take or Upload new DNI with Live Quality Audit */}
+            {isUpdatingWorkerDni && (
+              <div className="p-4 bg-orange-50/60 rounded-xl border-2 border-dashed border-[#9e4300]/40 space-y-3 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-[#9e4300]" />
+                    <h4 className="text-xs font-black text-[#001428] uppercase tracking-wide">
+                      Actualizar Foto de DNI con Validación Visual
+                    </h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUpdatingWorkerDni(false);
+                      setNewWorkerDniUrl('');
+                      setNewWorkerDniQuality(null);
+                    }}
+                    className="text-xs text-gray-500 hover:text-gray-800 cursor-pointer font-bold"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-[#43474d] leading-relaxed">
+                  Tomá una foto clara y bien iluminada de tu documento. El sistema analizará en tiempo real si tiene buena luz y nitidez antes de enviarla a la aprobación del administrador Jorge Lopez.
+                </p>
+
+                {/* Upload or Camera Capture options */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className="p-3 bg-white border border-[#c3c6ce] hover:border-[#9e4300] hover:bg-[#ffdbcb]/10 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs text-xs font-bold text-[#001428]">
+                    <Camera className="w-4 h-4 text-[#9e4300]" />
+                    <span>Sacar Foto con Cámara</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleWorkerNewDniFileChange}
+                      className="hidden"
+                    />
+                  </label>
+
+                  <label className="p-3 bg-white border border-[#c3c6ce] hover:border-[#9e4300] hover:bg-[#ffdbcb]/10 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs text-xs font-bold text-[#001428]">
+                    <Upload className="w-4 h-4 text-[#9e4300]" />
+                    <span>Seleccionar Archivo</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleWorkerNewDniFileChange}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {/* Preview of newly selected photo with real-time quality check */}
+                {newWorkerDniUrl && (
+                  <div className="pt-2 space-y-3">
+                    <div className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-gray-200">
+                      <img
+                        src={newWorkerDniUrl}
+                        alt="Nueva foto DNI"
+                        className="w-16 h-12 object-cover rounded-lg border border-gray-300 shadow-2xs shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-[#001428]">Nueva foto seleccionada</p>
+                        <p className="text-[10px] text-[#74777e]">Lista para guardar y enviar al administrador</p>
+                      </div>
+                    </div>
+
+                    <DniQualityBadge
+                      quality={newWorkerDniQuality}
+                      isAnalyzing={isAnalyzingNewWorkerDni}
+                      onRetake={() => {
+                        setNewWorkerDniUrl('');
+                        setNewWorkerDniQuality(null);
+                      }}
+                      showAdminAdvice={true}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={handleSaveWorkerDniUpdate}
+                      disabled={isAnalyzingNewWorkerDni}
+                      className="w-full py-2.5 bg-[#9e4300] hover:bg-[#853900] disabled:bg-gray-400 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>Guardar Foto de DNI y Enviar al Administrador</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Quick Profile Editor */}
@@ -803,159 +1476,377 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
             )}
           </div>
 
-          {/* Upload Completed Job with Photo */}
-          <div className="bg-white p-5 rounded-2xl border border-[#e2e8f0] shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-sm text-[#001428]">Mis Trabajos Certificados con Fotos</h3>
-                <p className="text-xs text-[#74777e]">
-                  Tenés {loggedInPro.completedJobs?.length || 0} trabajo(s) cargado(s)
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsAddingJob(!isAddingJob)}
-                className="px-3 py-1.5 bg-[#9e4300] hover:bg-[#853900] text-white text-xs font-bold rounded-xl flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Agregar Trabajo</span>
-              </button>
-            </div>
+          {/* ========================================================================= */}
+          {/* TARJETA 1: TRABAJOS Y PEDIDOS SOLICITADOS EXCLUSIVAMENTE A ESTE TRABAJADOR */}
+          {/* ========================================================================= */}
+          {(() => {
+            const myDirectRequests = (requests || []).filter(r => 
+              (r.assignedWorkerId && r.assignedWorkerId === loggedInPro.id) ||
+              (r.quotedBy && r.quotedBy.toLowerCase() === loggedInPro.name.toLowerCase()) ||
+              (r.phoneContact && loggedInPro.phone && r.phoneContact.replace(/\D/g, '') === loggedInPro.phone.replace(/\D/g, '')) ||
+              (r.title && r.title.toLowerCase().includes(loggedInPro.name.toLowerCase()))
+            );
 
-            {isAddingJob && (
-              <form onSubmit={handleSaveCompletedJob} className="p-4 bg-[#f8f9ff] rounded-xl border border-[#d8e2ee] space-y-3">
-                <h4 className="text-xs font-bold text-[#001428] uppercase tracking-wider">
-                  Cargar Nuevo Trabajo Terminado
-                </h4>
-
-                <div>
-                  <label className="text-xs font-bold text-[#001428] block mb-1">
-                    Título de la Obra o Servicio *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newJobTitle}
-                    onChange={(e) => setNewJobTitle(e.target.value)}
-                    placeholder="Ej: Instalación de termotanque solar"
-                    className="w-full text-xs p-2.5 rounded-xl border border-[#c3c6ce] bg-white focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs font-bold text-[#001428] block mb-1">
-                      Vecino / Cliente
-                    </label>
-                    <input
-                      type="text"
-                      value={newJobClient}
-                      onChange={(e) => setNewJobClient(e.target.value)}
-                      placeholder="Ej: Familia Romero"
-                      className="w-full text-xs p-2.5 rounded-xl border border-[#c3c6ce] bg-white focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-[#001428] block mb-1">
-                      Localidad
-                    </label>
-                    <select
-                      value={newJobNeighborhood}
-                      onChange={(e) => setNewJobNeighborhood(e.target.value)}
-                      className="w-full text-xs p-2.5 rounded-xl border border-[#c3c6ce] bg-white focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
-                    >
-                      {neighborhoods.filter(n => n.id !== 'todos').map(n => (
-                        <option key={n.id} value={n.name}>{n.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-[#001428] block mb-1">
-                    Comentario o detalle de la obra
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={newJobComment}
-                    onChange={(e) => setNewJobComment(e.target.value)}
-                    placeholder="Detalles sobre materiales utilizados y tiempo de ejecución..."
-                    className="w-full text-xs p-2.5 rounded-xl border border-[#c3c6ce] bg-white focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-[#001428] block mb-1">
-                    Foto del Trabajo Realizado
-                  </label>
-                  <label className="flex items-center gap-2.5 p-3 rounded-xl border border-dashed border-[#c3c6ce] bg-white hover:bg-orange-50/40 cursor-pointer">
-                    <Upload className="w-4 h-4 text-[#9e4300]" />
-                    <span className="text-xs text-[#001428] truncate">
-                      {newJobPhotoUrl ? 'Foto seleccionada ✓' : 'Seleccionar foto de tu galería'}
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (ev) => setNewJobPhotoUrl(ev.target?.result as string);
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="submit"
-                    className="flex-1 py-2.5 bg-[#9e4300] hover:bg-[#853900] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                  >
-                    Guardar y Publicar Trabajo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsAddingJob(false)}
-                    className="px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-[#001428] text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* List of completed jobs */}
-            {loggedInPro.completedJobs && loggedInPro.completedJobs.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {loggedInPro.completedJobs.map(job => (
-                  <div key={job.id} className="rounded-xl border border-[#e2e8f0] overflow-hidden bg-[#f8f9ff] text-xs">
-                    <img
-                      src={job.photoUrl}
-                      alt={job.title}
-                      className="w-full h-32 object-cover"
-                    />
-                    <div className="p-3">
-                      <p className="font-bold text-[#001428]">{job.title}</p>
-                      <p className="text-[11px] text-[#74777e] mt-0.5">{job.neighborhood} • {job.clientName}</p>
-                      {job.comment && (
-                        <p className="text-[11px] text-[#43474d] mt-1 italic line-clamp-2">"{job.comment}"</p>
-                      )}
+            return (
+              <div className="bg-white p-5 rounded-2xl border border-[#e2e8f0] shadow-xs space-y-3.5">
+                <div className="flex items-center justify-between border-b border-[#f1f5f9] pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-orange-100 text-[#9e4300] flex items-center justify-center font-bold">
+                      <Briefcase className="w-5 h-5 text-[#9e4300]" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm text-[#001428]">
+                        Trabajos Solicitados a mi Perfil
+                      </h3>
+                      <p className="text-xs text-[#74777e]">
+                        Pedidos y órdenes de servicio dirigidos exclusivamente a vos ({myDirectRequests.length})
+                      </p>
                     </div>
                   </div>
-                ))}
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-orange-50 text-[#9e4300] border border-orange-200">
+                    {myDirectRequests.length} {myDirectRequests.length === 1 ? 'pedido' : 'pedidos'}
+                  </span>
+                </div>
+
+                {myDirectRequests.length === 0 ? (
+                  <div className="p-5 text-center bg-[#f8fafc] rounded-xl border border-dashed border-[#cbd5e1] space-y-1.5">
+                    <Briefcase className="w-7 h-7 text-[#94a3b8] mx-auto" />
+                    <p className="text-xs font-bold text-[#001428]">No tenés pedidos directos asignados en este momento</p>
+                    <p className="text-[11px] text-[#64748b] max-w-sm mx-auto">
+                      Cuando un vecino te pida una cotización directa o te contrate formalmente, verás aquí su solicitud, trazabilidad y estado de pago.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {myDirectRequests.map((req) => {
+                      const contractNum = req.contractNumber || `ORD-VALLE-${req.id.replace('req-', '').slice(-4)}`;
+                      const isPaid = req.paymentStatus === 'confirmado';
+
+                      return (
+                        <div 
+                          key={req.id} 
+                          className="p-3 bg-[#f8fafc] hover:bg-[#eff4ff]/60 rounded-xl border border-[#e2e8f0] transition-colors space-y-2"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-mono font-bold text-slate-800 bg-white px-1.5 py-0.2 rounded border border-slate-300">
+                                  #{contractNum}
+                                </span>
+                                <span className="text-[10px] font-bold text-[#9e4300] bg-orange-50 px-1.5 py-0.2 rounded">
+                                  {req.trade}
+                                </span>
+                                <span className="text-[10px] text-gray-500 flex items-center gap-0.5">
+                                  <MapPin className="w-2.5 h-2.5 text-gray-400" />
+                                  {req.neighborhood}
+                                </span>
+                              </div>
+                              <h4 className="font-bold text-xs text-[#001428] mt-1">
+                                {req.title}
+                              </h4>
+                              <p className="text-[11px] text-[#64748b]">
+                                Solicitado por: <strong>{req.clientName || 'Vecino'}</strong> • {req.createdAt}
+                              </p>
+                            </div>
+
+                            <div className="flex flex-col items-end gap-1">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                                req.status === 'completado'
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                  : req.status === 'contratado'
+                                  ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                  : req.status === 'cotizado'
+                                  ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                  : 'bg-gray-100 text-gray-700'
+                              }`}>
+                                {req.status === 'completado'
+                                  ? '✓ Finalizado'
+                                  : req.status === 'contratado'
+                                  ? '⚡ En Curso'
+                                  : req.status === 'cotizado'
+                                  ? 'Cotizado'
+                                  : 'En Espera'}
+                              </span>
+
+                              {req.quoteAmount && (
+                                <span className="text-xs font-black text-[#001428]">
+                                  ${req.quoteAmount.toLocaleString('es-AR')}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Foto adjunta si el trabajo está terminado */}
+                          {req.completedJobPhoto && (
+                            <div className="flex items-center gap-2 pt-1 border-t border-slate-200">
+                              <img
+                                src={req.completedJobPhoto}
+                                alt="Foto certificada"
+                                onClick={() => setSelectedProPhotoModal({
+                                  id: req.id,
+                                  title: req.title,
+                                  clientName: req.clientName || 'Vecino',
+                                  neighborhood: req.neighborhood,
+                                  photoUrl: req.completedJobPhoto as string,
+                                  comment: req.completedJobComment,
+                                  contractNumber: contractNum,
+                                  date: req.createdAt
+                                })}
+                                className="w-12 h-12 rounded-lg object-cover border border-emerald-300 cursor-pointer hover:opacity-90"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[10px] font-bold text-emerald-800 flex items-center gap-1">
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                  <span>Obra certificada con foto subida</span>
+                                </p>
+                                <p className="text-[10px] text-gray-500 italic truncate">
+                                  {req.completedJobComment || 'Conformidad de obra registrada.'}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="text-center py-6 text-xs text-[#74777e] bg-[#f8f9ff] rounded-xl border border-dashed border-[#d8e2ee]">
-                <ImageIcon className="w-8 h-8 mx-auto text-[#c3c6ce] mb-1" />
-                <p>Aún no cargaste fotos de trabajos terminados.</p>
-                <p className="text-[11px] text-[#9e4300] mt-0.5">Las fotos aumentan un 80% las consultas de vecinos.</p>
+            );
+          })()}
+
+          {/* ========================================================================= */}
+          {/* TARJETA 2: MIS TRABAJOS CERTIFICADOS CON FOTOS (CON LIGHTBOX Y FIX IMAGES) */}
+          {/* ========================================================================= */}
+          {(() => {
+            const completedFromReqs = (requests || [])
+              .filter(r => (r.assignedWorkerId === loggedInPro.id || r.quotedBy === loggedInPro.name) && Boolean(r.completedJobPhoto))
+              .map(r => ({
+                id: `req-photo-${r.id}`,
+                title: r.title,
+                clientName: r.clientName || 'Vecino del Valle',
+                neighborhood: r.neighborhood,
+                photoUrl: r.completedJobPhoto as string,
+                imageUrl: r.completedJobPhoto as string,
+                comment: r.completedJobComment || 'Trabajo terminado y certificado mediante orden de contratación.',
+                contractNumber: r.contractNumber || `ORD-VALLE-${r.id.replace('req-', '').slice(-4)}`,
+                verifiedByApp: true,
+                date: r.createdAt
+              }));
+
+            const combinedCertifiedJobs = [
+              ...(loggedInPro.completedJobs || []).map((j, i) => ({
+                id: j.id || `pro-photo-${i}`,
+                title: j.title,
+                clientName: j.clientName || 'Vecino del Valle de Lerma',
+                neighborhood: j.neighborhood || loggedInPro.neighborhood,
+                photoUrl: j.photoUrl || j.imageUrl || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80',
+                imageUrl: j.imageUrl || j.photoUrl || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80',
+                comment: j.comment || 'Trabajo certificado.',
+                contractNumber: j.contractNumber,
+                verifiedByApp: j.verifiedByApp !== false,
+                date: j.date || 'Reciente'
+              })),
+              ...completedFromReqs
+            ];
+
+            return (
+              <div className="bg-white p-5 rounded-2xl border border-[#e2e8f0] shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-sm text-[#001428]">Mis Trabajos Certificados con Fotos</h3>
+                    <p className="text-xs text-[#74777e]">
+                      Tenés {combinedCertifiedJobs.length} trabajo(s) certificado(s)
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingJob(!isAddingJob)}
+                    className="px-3 py-1.5 bg-[#9e4300] hover:bg-[#853900] text-white text-xs font-bold rounded-xl flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Agregar Trabajo</span>
+                  </button>
+                </div>
+
+                {isAddingJob && (
+                  <form onSubmit={handleSaveCompletedJob} className="p-4 bg-[#f8f9ff] rounded-xl border border-[#d8e2ee] space-y-3">
+                    <h4 className="text-xs font-bold text-[#001428] uppercase tracking-wider">
+                      Cargar Nuevo Trabajo Terminado
+                    </h4>
+
+                    <div>
+                      <label className="text-xs font-bold text-[#001428] block mb-1">
+                        Título de la Obra o Servicio *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newJobTitle}
+                        onChange={(e) => setNewJobTitle(e.target.value)}
+                        placeholder="Ej: Instalación de termotanque solar"
+                        className="w-full text-xs p-2.5 rounded-xl border border-[#c3c6ce] bg-white focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs font-bold text-[#001428] block mb-1">
+                          Vecino / Cliente
+                        </label>
+                        <input
+                          type="text"
+                          value={newJobClient}
+                          onChange={(e) => setNewJobClient(e.target.value)}
+                          placeholder="Ej: Familia Romero"
+                          className="w-full text-xs p-2.5 rounded-xl border border-[#c3c6ce] bg-white focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold text-[#001428] block mb-1">
+                          Localidad
+                        </label>
+                        <select
+                          value={newJobNeighborhood}
+                          onChange={(e) => setNewJobNeighborhood(e.target.value)}
+                          className="w-full text-xs p-2.5 rounded-xl border border-[#c3c6ce] bg-white focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
+                        >
+                          {neighborhoods.filter(n => n.id !== 'todos').map(n => (
+                            <option key={n.id} value={n.name}>{n.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-[#001428] block mb-1">
+                        Comentario o detalle de la obra
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={newJobComment}
+                        onChange={(e) => setNewJobComment(e.target.value)}
+                        placeholder="Detalles sobre materiales utilizados y tiempo de ejecución..."
+                        className="w-full text-xs p-2.5 rounded-xl border border-[#c3c6ce] bg-white focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-[#001428] block mb-1">
+                        Foto del Trabajo Realizado
+                      </label>
+                      <label className="flex items-center gap-2.5 p-3 rounded-xl border border-dashed border-[#c3c6ce] bg-white hover:bg-orange-50/40 cursor-pointer">
+                        <Upload className="w-4 h-4 text-[#9e4300]" />
+                        <span className="text-xs text-[#001428] truncate">
+                          {newJobPhotoUrl ? 'Foto seleccionada ✓' : 'Seleccionar foto de tu galería'}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (ev) => setNewJobPhotoUrl(ev.target?.result as string);
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="submit"
+                        className="flex-1 py-2.5 bg-[#9e4300] hover:bg-[#853900] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                      >
+                        Guardar y Publicar Trabajo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingJob(false)}
+                        className="px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-[#001428] text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* List of completed jobs with photo view fix & zoom */}
+                {combinedCertifiedJobs.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    {combinedCertifiedJobs.map(job => {
+                      const displayPhoto = job.photoUrl || job.imageUrl || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80';
+
+                      return (
+                        <div 
+                          key={job.id} 
+                          onClick={() => setSelectedProPhotoModal(job)}
+                          className="rounded-2xl border border-[#e2e8f0] hover:border-orange-300 overflow-hidden bg-[#f8f9ff] text-xs cursor-pointer group shadow-2xs hover:shadow-md transition-all flex flex-col justify-between"
+                          title="Hacé clic para ver la foto en pantalla completa"
+                        >
+                          <div>
+                            <div className="relative aspect-[16/10] overflow-hidden bg-slate-900">
+                              <img
+                                src={displayPhoto}
+                                alt={job.title}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80';
+                                }}
+                              />
+                              <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5 backdrop-blur-2xs">
+                                <ZoomIn className="w-4 h-4 text-amber-300" />
+                                <span>Ver foto en tamaño completo</span>
+                              </div>
+                              {job.contractNumber && (
+                                <span className="absolute bottom-2 right-2 bg-black/75 text-white font-mono text-[9px] px-1.5 py-0.5 rounded backdrop-blur-xs">
+                                  #{job.contractNumber}
+                                </span>
+                              )}
+                              <span className="absolute top-2 left-2 bg-[#001428]/80 text-[#a3f69c] text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 backdrop-blur-xs">
+                                <ShieldCheck className="w-3 h-3 text-[#a3f69c]" />
+                                <span>Certificado</span>
+                              </span>
+                            </div>
+
+                            <div className="p-3">
+                              <p className="font-bold text-[#001428] group-hover:text-[#9e4300] transition-colors leading-snug">
+                                {job.title}
+                              </p>
+                              <p className="text-[11px] text-[#74777e] mt-0.5">
+                                {job.neighborhood} • {job.clientName}
+                              </p>
+                              {job.comment && (
+                                <p className="text-[11px] text-[#43474d] mt-1.5 italic line-clamp-2 bg-white/70 p-1.5 rounded-lg border border-slate-200">
+                                  "{job.comment}"
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="px-3 pb-2.5 pt-0">
+                            <span className="text-[10px] text-[#9e4300] font-bold flex items-center gap-1">
+                              <ZoomIn className="w-3 h-3" />
+                              <span>Tocá para ver foto ampliada</span>
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-xs text-[#74777e] bg-[#f8f9ff] rounded-xl border border-dashed border-[#d8e2ee]">
+                    <ImageIcon className="w-8 h-8 mx-auto text-[#c3c6ce] mb-1" />
+                    <p>Aún no cargaste fotos de trabajos terminados.</p>
+                    <p className="text-[11px] text-[#9e4300] mt-0.5">Las fotos aumentan un 80% las consultas de vecinos.</p>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
         </div>
       ) : (
         /* ========================================================================= */
@@ -1169,12 +2060,35 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                     </div>
 
                     <div>
-                      <label className="text-xs font-bold text-[#001428] block mb-1">
-                        Departamento / Localidad *
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-[#001428]">
+                          Localidad donde residís *
+                        </label>
+                        <button
+                          type="button"
+                          onClick={handleDetectUserLocation}
+                          disabled={isLocatingUser}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#9e4300] bg-orange-50 hover:bg-orange-100 active:bg-orange-200 border border-orange-300 px-2.5 py-1 rounded-lg transition-all cursor-pointer disabled:opacity-60 shadow-2xs"
+                          title="Detectar por GPS tu localidad más cercana en el Valle de Lerma"
+                        >
+                          {isLocatingUser ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#9e4300]" />
+                          ) : (
+                            <Crosshair className="w-3.5 h-3.5 text-[#9e4300]" />
+                          )}
+                          <span>{isLocatingUser ? 'Consultando GPS...' : '📍 Detectar con GPS'}</span>
+                        </button>
+                      </div>
+
                       <select
                         value={neighborhood}
-                        onChange={(e) => setNeighborhood(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setNeighborhood(val);
+                          if (!coverageZones.includes(val)) {
+                            setCoverageZones([...coverageZones, val]);
+                          }
+                        }}
                         className="w-full text-xs p-3 rounded-xl border border-[#c3c6ce] bg-white focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
                       >
                         {neighborhoods.filter(n => n.id !== 'todos').map((n) => (
@@ -1183,61 +2097,316 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                           </option>
                         ))}
                       </select>
+
+                      {/* Feedback de detección GPS */}
+                      {locationDetectedInfo && (
+                        <div className="mt-2 p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 text-[11px] flex items-start gap-2 shadow-2xs">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-bold text-emerald-900">
+                                📍 Localidad sugerida: {locationDetectedInfo.locality}
+                              </span>
+                              <span className="text-[10px] bg-emerald-200/80 text-emerald-900 font-bold px-1.5 py-0.2 rounded-full">
+                                {locationDetectedInfo.distanceKm < 1 
+                                  ? `${Math.round(locationDetectedInfo.distanceKm * 1000)}m de tu ubicación` 
+                                  : `a ${locationDetectedInfo.distanceKm.toFixed(1)} km`}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-emerald-800 mt-0.5 leading-snug">
+                              {locationDetectedInfo.message}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {locationError && (
+                        <div className="mt-2 p-2.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 text-[11px] flex items-start gap-2 shadow-2xs">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <span className="font-bold block text-amber-900">Aviso de Ubicación GPS</span>
+                            <p className="text-[10px] text-amber-800 mt-0.5 leading-snug">
+                              {locationError}
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-bold text-[#001428] block mb-1">
-                        Celular / WhatsApp *
+                  {/* Zonas de Cobertura Multi-localidad */}
+                  <div className="p-3.5 bg-[#f8faff] rounded-xl border border-[#dce7f5] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-[#001428] flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-[#9e4300]" />
+                        <span>¿En qué localidades estás disponible para trabajar? *</span>
                       </label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-3 text-xs text-[#74777e] font-semibold">
-                          +54 9
+                      <span className="text-[10px] text-[#9e4300] font-bold">
+                        {coverageZones.length} seleccionada{coverageZones.length > 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#5a5f67] leading-relaxed">
+                      Si vivís en {neighborhood} pero podés trasladarte a otras localidades, marcalas aquí para aparecer cuando los vecinos filtren por esas zonas:
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {neighborhoods.filter(n => n.id !== 'todos').map((n) => {
+                        const isSelected = coverageZones.includes(n.name);
+                        return (
+                          <button
+                            key={n.id}
+                            type="button"
+                            onClick={() => toggleCoverageZone(n.name)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-[#0f2942] text-white shadow-xs'
+                                : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+                            }`}
+                          >
+                            <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-[#ffdbcb]' : 'bg-gray-300'}`} />
+                            <span>{n.name}</span>
+                            {isSelected && <Check className="w-3 h-3 text-[#ffdbcb]" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Celular y Verificación WhatsApp con Código */}
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-bold text-[#001428] block">
+                            Celular / WhatsApp *
+                          </label>
+                          {phoneVerified && (
+                            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Verificado
+                            </span>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <span className="absolute left-3 top-3 text-xs text-[#74777e] font-semibold">
+                            +54 9
+                          </span>
+                          <input
+                            type="tel"
+                            required
+                            value={phone}
+                            onChange={(e) => {
+                              setPhone(e.target.value);
+                              if (phoneVerified) setPhoneVerified(false);
+                            }}
+                            placeholder="387 555-1234"
+                            className="w-full text-xs p-3 pl-14 rounded-xl border border-[#c3c6ce] focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
+                          />
+                        </div>
+                        <span className="text-[10px] text-[#74777e] mt-0.5 block">
+                          Aquí te escribirán los clientes directos
                         </span>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold text-[#001428] block mb-1">
+                          Años de experiencia
+                        </label>
                         <input
-                          type="tel"
-                          required
-                          value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
-                          placeholder="387 555-1234"
-                          className="w-full text-xs p-3 pl-14 rounded-xl border border-[#c3c6ce] focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
+                          type="number"
+                          min="0"
+                          max="50"
+                          value={experienceYears}
+                          onChange={(e) => setExperienceYears(parseInt(e.target.value) || 0)}
+                          className="w-full text-xs p-3 rounded-xl border border-[#c3c6ce] focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
                         />
                       </div>
-                      <span className="text-[10px] text-[#74777e] mt-0.5 block">
-                        Aquí te llegarán los mensajes de los clientes
+                    </div>
+
+                    {/* Módulo de Verificación de WhatsApp mediante Código */}
+                    <div className="p-3.5 bg-[#f0fdf4] rounded-xl border border-emerald-200 space-y-2.5">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <MessageCircle className="w-4 h-4 text-emerald-600" />
+                          <span className="text-xs font-bold text-emerald-950">
+                            Validación de WhatsApp con Código de Seguridad *
+                          </span>
+                        </div>
+                        {phoneVerified ? (
+                          <span className="text-[11px] font-bold text-emerald-700 bg-white px-2.5 py-1 rounded-lg border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                            <Check className="w-3.5 h-3.5 text-emerald-600" /> WhatsApp Confirmado
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handleSendVerificationCode}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>{verificationCodeSent ? 'Reenviar Código' : 'Enviar Código a WhatsApp'}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {!phoneVerified && verificationCodeSent && (
+                        <div className="p-3 bg-white rounded-xl border border-emerald-300 space-y-2 animate-in fade-in duration-200">
+                          <div className="flex items-center justify-between text-xs text-gray-700">
+                            <span>Ingresá el código de 6 dígitos enviado a WhatsApp:</span>
+                            <span className="text-[10px] bg-amber-100 text-amber-900 font-mono font-bold px-2 py-0.5 rounded">
+                              Código de prueba: {generatedVerificationCode}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              maxLength={6}
+                              value={inputVerificationCode}
+                              onChange={(e) => setInputVerificationCode(e.target.value.replace(/[^0-9]/g, ''))}
+                              placeholder="Ej: 123456"
+                              className="w-36 text-center text-sm font-mono tracking-widest font-black p-2.5 rounded-xl border border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleConfirmVerificationCode}
+                              className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black rounded-xl shadow-xs transition-colors cursor-pointer"
+                            >
+                              Confirmar Código
+                            </button>
+                          </div>
+                          {verificationError && (
+                            <p className="text-[11px] font-bold text-red-600 flex items-center gap-1">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              <span>{verificationError}</span>
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {!phoneVerified && !verificationCodeSent && (
+                        <p className="text-[11px] text-emerald-800 leading-snug">
+                          Tocá en "Enviar Código a WhatsApp" para recibir un código de 6 dígitos y validar que tu número reciba clientes sin problemas.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* FOTO ACTUAL CON LA CÁMARA (OBLIGATORIA) */}
+                  <div className="p-4 bg-[#fffaf5] rounded-xl border border-orange-200 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Camera className="w-4 h-4 text-[#9e4300]" />
+                        <h4 className="text-xs font-bold text-[#001428] uppercase tracking-wider">
+                          Foto Actual con la Cámara del Celular *
+                        </h4>
+                      </div>
+                      <span className="text-[10px] bg-red-100 text-red-800 font-black px-2 py-0.5 rounded-full">
+                        Obligatorio
                       </span>
                     </div>
 
-                    <div>
-                      <label className="text-xs font-bold text-[#001428] block mb-1">
-                        Años de experiencia
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="50"
-                        value={experienceYears}
-                        onChange={(e) => setExperienceYears(parseInt(e.target.value) || 0)}
-                        className="w-full text-xs p-3 rounded-xl border border-[#c3c6ce] focus:outline-none focus:ring-1 focus:ring-[#9e4300]"
-                      />
-                    </div>
+                    <p className="text-[11px] text-[#5a5f67] leading-relaxed">
+                      Por política de seguridad para los vecinos, no se permiten fotos guardadas de la galería. Debés tomarte una foto de rostro actual con la cámara. La fecha y hora de captura quedarán registradas ({new Date().toLocaleDateString()}).
+                    </p>
+
+                    {/* Alerta de bloqueo si intentó cargar un archivo preexistente de la galería */}
+                    {photoValidationError && (
+                      <div className="p-3.5 bg-red-50 border-2 border-red-300 rounded-xl text-red-950 text-xs flex items-start gap-2.5 shadow-xs animate-shake">
+                        <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                        <div className="flex-1 space-y-1">
+                          <strong className="font-black text-red-900 block text-xs">
+                            Carga de Archivo Bloqueada (Control Antifraude)
+                          </strong>
+                          <p className="text-[11px] text-red-800 leading-relaxed">
+                            {photoValidationError}
+                          </p>
+                          <span className="text-[10px] bg-red-100 text-red-900 font-bold px-2 py-0.5 rounded-full inline-block mt-1">
+                            ⚠️ Solo se admiten capturas en vivo de hoy ({new Date().toLocaleDateString('es-AR')})
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {liveSelfieUrl ? (
+                      <div className="p-3 bg-white rounded-xl border border-emerald-300 flex items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <img
+                            src={liveSelfieUrl}
+                            alt="Foto selfie actual"
+                            className="w-14 h-14 object-cover rounded-xl border-2 border-emerald-400 shadow-xs shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <span className="text-xs font-bold text-emerald-950 flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Foto verificada en tiempo real</span>
+                            </span>
+                            <p className="text-[10px] text-emerald-800 mt-0.5 truncate font-mono">
+                              Capturada: {photoTakenAt ? new Date(photoTakenAt).toLocaleDateString('es-AR') : 'Hoy'} a las {photoTakenAt ? new Date(photoTakenAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
+                            </p>
+                            <span className="text-[9px] bg-emerald-100 text-emerald-800 font-black px-1.5 py-0.5 rounded-sm inline-block mt-0.5">
+                              ✓ Validación de captura en vivo aprobada
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLiveSelfieUrl('');
+                            setPhotoTakenAt(null);
+                            setPhotoCaptureTimestamp(null);
+                            setPhotoValidationStatus(null);
+                            setPhotoValidationError(null);
+                          }}
+                          className="px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg cursor-pointer transition-colors shrink-0 font-bold border border-red-200"
+                        >
+                          Volver a tomar
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {/* Botón 1: Cámara en vivo con visor */}
+                          <button
+                            type="button"
+                            onClick={startLiveCamera}
+                            className="py-3 px-3 bg-[#0f2942] hover:bg-[#001428] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
+                          >
+                            <Camera className="w-4 h-4 text-[#ffdbcb]" />
+                            <span>Abrir Visor de Cámara</span>
+                          </button>
+
+                          {/* Botón 2: Cámara nativa del celular (capture="user") */}
+                          <label className="py-3 px-3 bg-white border border-[#9e4300] hover:bg-orange-50 text-[#9e4300] text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-2xs text-center">
+                            <Smartphone className="w-4 h-4 text-[#9e4300]" />
+                            <span>Cámara Frontal Celular</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="user"
+                              onChange={handleNativeCameraCapture}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                        <span className="text-[10px] text-gray-500 block text-center">
+                          El navegador activará la cámara frontal para sacar tu selfie en el momento. La fecha del archivo se verifica contra el reloj del sistema.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* 3. DOCUMENTACIÓN DE IDENTIDAD Y CERTIFICACIÓN */}
+                {/* 3. DOCUMENTACIÓN DE IDENTIDAD OBLIGATORIA (DNI) Y MATRÍCULA */}
                 <div className="space-y-3 pt-2 border-t border-[#f1f5f9]">
                   <div className="flex items-center justify-between">
                     <h3 className="text-xs font-bold text-[#9e4300] uppercase tracking-wider flex items-center gap-1.5">
                       <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>3. Identidad y Certificación (Opcional)</span>
+                      <span>3. Identidad Obligatoria (DNI) y Matrícula (Opcional)</span>
                     </h3>
-                    <span className="text-[10px] text-emerald-800 bg-emerald-100 font-bold px-2 py-0.5 rounded-full">
-                      Insignia Verificada
+                    <span className="text-[10px] text-red-800 bg-red-100 font-bold px-2 py-0.5 rounded-full">
+                      DNI Obligatorio
                     </span>
                   </div>
                   <p className="text-[11px] text-[#43474d] leading-relaxed">
-                    Adjuntar tu DNI y constancia de matrícula o título permite verificar tu cuenta con el sello de <strong>Matrícula Verificada</strong> para dar máxima confianza a los vecinos.
+                    Adjuntar la foto de tu DNI es <strong>obligatorio</strong> para validar tu identidad. Si contás con matrícula o título oficial, también podés adjuntarlo para obtener la insignia de <strong>Matrícula Verificada</strong>.
                   </p>
 
                   {/* Documento Nacional de Identidad (DNI) */}
@@ -1262,45 +2431,82 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                       />
                     </div>
 
-                    {/* Foto del DNI Upload */}
+                    {/* Foto del DNI Upload con Auditoría Visual */}
                     {dniPhotoUrl ? (
-                      <div className="relative rounded-xl border border-emerald-300 bg-emerald-50/60 p-2.5 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <img
-                            src={dniPhotoUrl}
-                            alt="DNI adjunto"
-                            className="w-14 h-11 object-cover rounded-lg border border-emerald-200 shadow-2xs shrink-0"
-                          />
-                          <div className="min-w-0">
-                            <span className="text-xs font-bold text-emerald-950 flex items-center gap-1">
-                              <Check className="w-3.5 h-3.5 text-emerald-700" />
-                              <span>Foto del DNI adjunta</span>
-                            </span>
-                            <p className="text-[10px] text-emerald-800 truncate">
-                              Lista para validación de seguridad
-                            </p>
+                      <div className="space-y-2.5">
+                        <div className="relative rounded-xl border border-emerald-300 bg-emerald-50/60 p-2.5 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <img
+                              src={dniPhotoUrl}
+                              alt="DNI adjunto"
+                              onClick={() => setViewingDocumentModal({ title: 'Foto de tu DNI adjunta', imageUrl: dniPhotoUrl })}
+                              className="w-14 h-11 object-cover rounded-lg border border-emerald-200 shadow-2xs shrink-0 cursor-pointer hover:opacity-90"
+                              title="Tocá para ampliar"
+                            />
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold text-emerald-950 flex items-center gap-1">
+                                <Check className="w-3.5 h-3.5 text-emerald-700" />
+                                <span>Foto del DNI cargada</span>
+                              </span>
+                              <p className="text-[10px] text-emerald-800 truncate">
+                                Auditando legibilidad e iluminación...
+                              </p>
+                            </div>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDniPhotoUrl('');
+                              setDniQualityResult(null);
+                            }}
+                            className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg cursor-pointer shrink-0 transition-colors"
+                            title="Eliminar foto de DNI"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setDniPhotoUrl('')}
-                          className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg cursor-pointer shrink-0 transition-colors"
-                          title="Eliminar foto de DNI"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+
+                        {/* Visual Quality & Legibility Notification */}
+                        <DniQualityBadge
+                          quality={dniQualityResult}
+                          isAnalyzing={isAnalyzingDniQuality}
+                          onRetake={() => {
+                            setDniPhotoUrl('');
+                            setDniQualityResult(null);
+                          }}
+                          showAdminAdvice={true}
+                        />
                       </div>
                     ) : (
-                      <label className="w-full py-2.5 px-3 bg-white border border-dashed border-[#9e4300] hover:bg-[#ffdbcb]/10 text-[#9e4300] text-xs font-bold rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs">
-                        <Camera className="w-4 h-4 text-[#9e4300]" />
-                        <span>{isUploadingDni ? 'Cargando foto...' : 'Subir o fotografiar DNI'}</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleDniFileChange}
-                          className="hidden"
-                        />
-                      </label>
+                      <div className="space-y-1.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <label className="py-2.5 px-3 bg-white border border-dashed border-[#9e4300] hover:bg-[#ffdbcb]/10 text-[#9e4300] text-xs font-bold rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs">
+                            <Camera className="w-4 h-4 text-[#9e4300]" />
+                            <span>{isUploadingDni ? 'Cargando...' : 'Tomar Foto con Cámara'}</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              onChange={handleDniFileChange}
+                              className="hidden"
+                            />
+                          </label>
+
+                          <label className="py-2.5 px-3 bg-white border border-dashed border-gray-400 hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs">
+                            <Upload className="w-4 h-4 text-gray-600" />
+                            <span>{isUploadingDni ? 'Cargando...' : 'Subir Archivo de Foto'}</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleDniFileChange}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                        <p className="text-[10px] text-[#74777e] leading-snug">
+                          El sistema comprobará automáticamente que la foto sea legible y no esté oscura ni borrosa antes de enviarla a la aprobación del administrador.
+                        </p>
+                      </div>
                     )}
                   </div>
 
@@ -1395,7 +2601,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <label className="flex items-center justify-between p-3 rounded-xl border border-[#e2e8f0] bg-[#f8f9ff] cursor-pointer">
                       <span className="text-xs font-medium text-[#001428]">
-                        ¿Hacés guardias de urgencia?
+                        ¿Atención de Urgencias 24 horas?
                       </span>
                       <input
                         type="checkbox"
@@ -1731,34 +2937,34 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
               )}
 
               {/* Cartel Exclusivo del Administrador: Descargar ZIP, APK y Guía Ubuntu */}
-              <div className="w-full block bg-gradient-to-br from-[#001428] via-[#09223a] to-[#122e4d] border border-amber-400/30 rounded-2xl p-4 sm:p-5 text-white shadow-md space-y-3.5">
-                <div className="flex flex-col sm:flex-row sm:items-start gap-3 w-full">
+              <div className="bg-gradient-to-br from-[#001428] via-[#09223a] to-[#122e4d] border border-amber-400/30 rounded-2xl p-4 sm:p-5 text-white shadow-md space-y-3.5">
+                <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-amber-400 text-[#001428] flex items-center justify-center font-bold shrink-0 shadow-xs">
                     <Download className="w-5 h-5" />
                   </div>
-                  <div className="flex-1 min-w-0 w-full">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="text-sm font-black text-white">
                         Descarga de Código Fuente, APK y Despliegue en Servidor
                       </h3>
                       <span className="text-[10px] bg-amber-400 text-[#001428] font-black px-2 py-0.5 rounded-full shadow-2xs shrink-0">
-                        ZIP 2.58 MB
+                        ZIP 2.48 MB
                       </span>
                       <span className="text-[10px] bg-emerald-500 text-white font-black px-2 py-0.5 rounded-full shadow-2xs shrink-0">
                         APK Android
                       </span>
                     </div>
-                    <p className="text-xs text-[#d3e4fe] mt-1.5 leading-relaxed whitespace-normal break-words">
-                      Descargá el archivo completo con el código fuente (.zip), el instalador directo para celulares Android (.apk) o consultá la configuración paso a paso con los comandos para tu servidor Linux Ubuntu con Nginx.
+                    <p className="text-xs text-[#d3e4fe] mt-1 leading-relaxed">
+                      Descargá el archivo completo con el código fuente (.zip), el instalador directo para celulares Android (.apk) o consultá la configuración de Docker y Nginx para tu servidor Linux.
                     </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-white/10 w-full">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-white/10">
                   <a
                     href="/oficios-valle-de-lerma.zip"
                     download="oficios-valle-de-lerma.zip"
-                    className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-[#001428] text-xs font-black rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm border border-amber-300 text-center min-h-[42px]"
+                    className="py-2.5 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-[#001428] text-xs font-black rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm border border-amber-300 text-center"
                     title="Descargar paquete ZIP con todos los archivos del proyecto y Docker"
                   >
                     <Download className="w-4 h-4 text-[#001428] shrink-0" />
@@ -1809,33 +3015,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
                       <Cloud className="w-3 h-3 text-emerald-600 animate-pulse" /> Cloud Firebase Conectado
                     </span>
-                    <a
-                      href="/oficios-valle-de-lerma.zip"
-                      download="oficios-valle-de-lerma.zip"
-                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500 hover:bg-amber-400 text-[#001428] text-[11px] font-black border border-amber-600 shadow-2xs transition-colors cursor-pointer"
-                      title="Descargar archivo ZIP de la aplicación"
-                    >
-                      <Download className="w-3 h-3 text-[#001428]" />
-                      <span>Descargar ZIP</span>
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => setIsApkModalOpen(true)}
-                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-bold border border-emerald-500 shadow-2xs transition-colors cursor-pointer"
-                      title="Descargar APK oficial para Android"
-                    >
-                      <Smartphone className="w-3 h-3 text-emerald-200" />
-                      <span>Descargar APK</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsDockerModalOpen(true)}
-                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-900 hover:bg-blue-800 text-white text-[11px] font-bold border border-blue-700 shadow-2xs transition-colors cursor-pointer"
-                      title="Ver configuración y comandos de Docker Compose para desplegar en tu servidor"
-                    >
-                      <Layers className="w-3 h-3 text-blue-300" />
-                      <span>Docker Compose (Producción)</span>
-                    </button>
+
                     {onLockAdmin && (
                       <button
                         type="button"
@@ -1853,8 +3033,8 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                   </p>
                 </div>
 
-                {/* Sub-section Switcher Tabs: Grid responsivo que nunca se desborda del margen */}
-                <div className="w-full mb-3 p-1.5 bg-gray-100/90 rounded-2xl border border-gray-200/80 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5">
+                {/* Sub-section Switcher Tabs: Grid de doble línea responsivo que nunca se desborda del margen */}
+                <div className="w-full mb-3 p-1.5 bg-gray-100/90 rounded-2xl border border-gray-200/80 grid grid-cols-2 md:grid-cols-4 gap-1.5">
                   <button
                     type="button"
                     onClick={() => setAdminSubSection('estadisticas')}
@@ -1865,7 +3045,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                     }`}
                   >
                     <BarChart3 className="w-4 h-4 text-blue-400 shrink-0" />
-                    <span className="leading-tight">Estadísticas</span>
+                    <span className="leading-tight">Estadísticas y Logs</span>
                   </button>
 
                   <button
@@ -1890,21 +3070,6 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setAdminSubSection('antifraude')}
-                    className={`w-full py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer text-center ${
-                      adminSubSection === 'antifraude'
-                        ? 'bg-emerald-800 text-white shadow-xs'
-                        : 'text-[#5a5f67] hover:text-[#001428] hover:bg-white/60'
-                    }`}
-                  >
-                    <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span className="leading-tight">
-                      Antifraude ({trialRecords.length})
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
                     onClick={() => setAdminSubSection('publicidad')}
                     className={`w-full py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer text-center ${
                       adminSubSection === 'publicidad'
@@ -1914,7 +3079,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                   >
                     <Megaphone className="w-4 h-4 text-orange-200 shrink-0" />
                     <span className="leading-tight">
-                      Publicidad
+                      Publicidades
                       {activeAdsTodayCount > 0 ? (
                         <span className="ml-1 bg-emerald-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full inline-block">
                           {activeAdsTodayCount} hoy
@@ -1930,14 +3095,27 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => setAdminSubSection('rubros-localidades')}
-                    className={`w-full py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer text-center col-span-2 sm:col-span-1 ${
+                    className={`w-full py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer text-center ${
                       adminSubSection === 'rubros-localidades'
                         ? 'bg-amber-400 text-[#001428] shadow-xs'
                         : 'text-[#5a5f67] hover:text-[#001428] hover:bg-white/60'
                     }`}
                   >
                     <ListFilter className="w-4 h-4 text-amber-700 shrink-0" />
-                    <span className="leading-tight">Rubros</span>
+                    <span className="leading-tight">Servicios y Localidades</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAdminSubSection('telefonos-utiles')}
+                    className={`w-full py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition-all cursor-pointer text-center ${
+                      adminSubSection === 'telefonos-utiles'
+                        ? 'bg-emerald-700 text-white shadow-xs'
+                        : 'text-[#5a5f67] hover:text-[#001428] hover:bg-white/60'
+                    }`}
+                  >
+                    <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="leading-tight">Teléfonos Útiles</span>
                   </button>
                 </div>
 
@@ -2054,14 +3232,11 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
               </div>
 
               {/* RENDER CONTENT BASED ON SUB-SECTION */}
-              {/* RENDER CONTENT BASED ON SUB-SECTION */}
               {adminSubSection === 'estadisticas' && (
                 <AdminStatsDashboard
                   analytics={analytics}
                   professionals={professionals}
                   requests={requests}
-                  trialRecords={trialRecords}
-                  onUpdateSubscription={onUpdateSubscription}
                   onSelectFilter={(fil) => {
                     setApprovalFilter(fil);
                     setAdminSubSection('prestadores');
@@ -2070,86 +3245,6 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                   onOpenApkModal={() => setIsApkModalOpen(true)}
                   onOpenDockerModal={() => setIsDockerModalOpen(true)}
                 />
-              )}
-
-              {adminSubSection === 'antifraude' && (
-                <div className="bg-white p-5 rounded-2xl border border-[#e2e8f0] shadow-xs space-y-4 animate-in fade-in duration-200">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#f1f5f9] pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
-                        <ShieldCheck className="w-5 h-5 text-emerald-700" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-black text-[#001428]">
-                            Padrón Antifraude de Teléfonos Registrados
-                          </h4>
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            {trialRecords.length} celulares
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-[#5a5f67]">
-                          Registro persistente en la nube de prestadores que ya utilizaron la prueba gratuita de 30 días
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-950 space-y-1">
-                    <p className="font-bold flex items-center gap-1.5 text-amber-900">
-                      <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
-                      <span>Protección de Ingreso y Control de Prueba Gratuita:</span>
-                    </p>
-                    <p className="text-[11px] leading-relaxed text-amber-900/90">
-                      Cuando un prestador se registra por primera vez, su número de celular normalizado queda grabado en este padrón y en Firestore. Si intenta registrarse de nuevo con el mismo celular (aunque cambie el nombre de usuario o borre los datos de su celular), el sistema <strong>bloquea automáticamente la creación de cuenta gratuita</strong> y le informa que debe comunicarse al <strong>3875286914</strong> para abonar.
-                    </p>
-                  </div>
-
-                  {/* Buscador de Teléfonos */}
-                  <div className="space-y-2">
-                    <input
-                      type="text"
-                      placeholder="Buscar por número de celular, prestador u oficio..."
-                      value={antifraudeSearchQuery}
-                      onChange={(e) => setAntifraudeSearchQuery(e.target.value)}
-                      className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-emerald-600 bg-gray-50"
-                    />
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-96 overflow-y-auto pr-1">
-                      {trialRecords
-                        .filter(r => {
-                          if (!antifraudeSearchQuery.trim()) return true;
-                          const q = antifraudeSearchQuery.toLowerCase();
-                          return (
-                            r.phone.includes(q) ||
-                            r.normalizedPhone.includes(q) ||
-                            r.name.toLowerCase().includes(q) ||
-                            r.trade.toLowerCase().includes(q)
-                          );
-                        })
-                        .map(rec => (
-                          <div key={rec.id} className="p-3 bg-gray-50/80 rounded-xl border border-gray-200 text-xs space-y-1.5 shadow-2xs">
-                            <div className="flex items-center justify-between">
-                              <span className="font-mono font-bold text-[#001428] bg-white px-2 py-0.5 rounded border border-gray-200 text-[11px]">
-                                📱 {rec.phone}
-                              </span>
-                              <span className="text-[9px] font-black bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded-full border border-emerald-200 uppercase">
-                                Prueba Usada
-                              </span>
-                            </div>
-                            <div>
-                              <p className="font-bold text-[#001428] truncate">{rec.name}</p>
-                              <p className="text-[10px] text-[#9e4300] font-semibold truncate">{rec.trade}</p>
-                            </div>
-                            <div className="text-[10px] text-gray-500 pt-1 border-t border-gray-200 flex justify-between">
-                              <span>Alta: {new Date(rec.registeredAt).toLocaleDateString('es-AR')}</span>
-                              <span>Vence: {new Date(rec.trialEndDate).toLocaleDateString('es-AR')}</span>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                </div>
               )}
 
               {adminSubSection === 'publicidad' && onTestAdvertisement && (
@@ -2171,6 +3266,13 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                 />
               )}
 
+              {adminSubSection === 'telefonos-utiles' && (
+                <AdminUsefulPhonesConfig
+                  usefulPhones={usefulPhones || []}
+                  onSaveUsefulPhones={onSaveUsefulPhones || (() => {})}
+                />
+              )}
+
               {adminSubSection === 'prestadores' && (
                 <>
 
@@ -2185,8 +3287,9 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
               ) : (
                 <div className="space-y-4">
                   {displayedPros.map((pro) => {
-                    const sub = getProSubscriptionDetails(pro);
-                    const proPaymentDate = paymentDateInputs[pro.id] || new Date().toISOString().split('T')[0];
+                    const isExpired = pro.isTrialExpired || pro.subscriptionStatus === 'caducada' || pro.trialActive === false;
+                    const isMonthly = pro.subscriptionPlan === 'abono_mensual' && pro.subscriptionStatus === 'activa';
+                    const isAnnual = pro.subscriptionPlan === 'abono_anual' && pro.subscriptionStatus === 'activa';
 
                     return (
                       <div key={pro.id} className="bg-white rounded-2xl border border-[#e2e8f0] p-5 shadow-xs space-y-3">
@@ -2216,31 +3319,26 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                             </div>
                           </div>
 
-                          {/* Status Badge with Exact Days Remaining */}
+                          {/* Status Badge */}
                           <div className="shrink-0">
-                            {sub.isExpired ? (
-                              <span className="text-[10px] bg-red-100 text-red-900 font-bold px-2.5 py-1 rounded-full border border-red-300 flex items-center gap-1 shadow-2xs">
-                                <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
-                                <span>{sub.isPaidPlan ? 'Abono Vencido (Corte)' : 'Prueba Caducada (Corte)'}</span>
+                            {isExpired ? (
+                              <span className="text-[10px] bg-red-100 text-red-800 font-bold px-2 py-0.5 rounded-full border border-red-300 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3 text-red-600" />
+                                <span>Prueba Caducada</span>
                               </span>
-                            ) : sub.plan === 'abono_mensual' ? (
-                              <span className="text-[10px] bg-blue-100 text-blue-900 font-bold px-2.5 py-1 rounded-full border border-blue-300 flex items-center gap-1 shadow-2xs">
-                                <Check className="w-3.5 h-3.5 text-blue-700" />
-                                <span>Abono: Quedan {sub.daysRemaining}d</span>
+                            ) : isMonthly ? (
+                              <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full border border-blue-300 flex items-center gap-1">
+                                <Check className="w-3 h-3 text-blue-600" />
+                                <span>Abono Mensual</span>
                               </span>
-                            ) : sub.plan === 'abono_anual' ? (
-                              <span className="text-[10px] bg-purple-100 text-purple-900 font-bold px-2.5 py-1 rounded-full border border-purple-300 flex items-center gap-1 shadow-2xs">
-                                <Sparkles className="w-3.5 h-3.5 text-purple-700" />
-                                <span>Anual: Quedan {sub.daysRemaining}d</span>
+                            ) : isAnnual ? (
+                              <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded-full border border-purple-300 flex items-center gap-1">
+                                <Sparkles className="w-3 h-3 text-purple-600" />
+                                <span>Abono Anual</span>
                               </span>
                             ) : (
-                              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border flex items-center gap-1 shadow-2xs ${
-                                sub.daysRemaining <= 7 
-                                  ? 'bg-amber-100 text-amber-900 border-amber-300' 
-                                  : 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                              }`}>
-                                <Clock className="w-3.5 h-3.5 text-emerald-700" />
-                                <span>Prueba: Quedan {sub.daysRemaining}d</span>
+                              <span className="text-[10px] bg-[#ffdbcb] text-[#783100] font-bold px-2 py-0.5 rounded-full border border-[#ffb68f]">
+                                30 Días Gratis
                               </span>
                             )}
                           </div>
@@ -2259,14 +3357,19 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                               </span>
                             )}
                             {pro.dniPhotoUrl && (
-                              <button
-                                type="button"
-                                onClick={() => setViewingDocumentModal({ title: `Foto DNI - ${pro.name}`, imageUrl: pro.dniPhotoUrl! })}
-                                className="text-[11px] font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-lg border border-blue-200 flex items-center gap-1 cursor-pointer transition-colors"
-                              >
-                                <FileText className="w-3 h-3" />
-                                <span>Ver Foto DNI</span>
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingDocumentModal({ title: `Foto DNI - ${pro.name}`, imageUrl: pro.dniPhotoUrl! })}
+                                  className="text-[11px] font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-lg border border-blue-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                  <FileText className="w-3 h-3" />
+                                  <span>Ver Foto DNI</span>
+                                </button>
+                                {pro.dniQuality && (
+                                  <DniQualityBadge quality={pro.dniQuality as any} compact />
+                                )}
+                              </div>
                             )}
                             {pro.matricula && (
                               <span className="text-emerald-900 bg-emerald-100/70 px-2 py-0.5 rounded-lg border border-emerald-200 font-semibold">
@@ -2304,103 +3407,82 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                         )}
 
                         {/* Subscription details & Admin Actions */}
-                        <div className="pt-3 border-t border-[#f1f5f9] bg-[#f8faff] -mx-5 -mb-5 p-4 rounded-b-2xl space-y-2.5">
+                        <div className="pt-3 border-t border-[#f1f5f9] bg-[#f8faff] -mx-5 -mb-5 p-4 rounded-b-2xl">
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div className="text-xs space-y-0.5">
-                              <p className="font-bold text-[#001428] flex items-center gap-1.5">
-                                <span>Estado de Ingreso:</span>
-                                {sub.isExpired ? (
-                                  <span className="text-red-700 bg-red-100 px-2 py-0.5 rounded-full font-black border border-red-300">
-                                    🔴 Cortado / Caducado (Debe contactar al 3875286914)
-                                  </span>
+                            <div className="text-xs">
+                              <p className="font-bold text-[#001428]">
+                                Estado de Ingreso: {isExpired ? (
+                                  <span className="text-red-600">🔴 Bloqueado (Debe comunicarse al 3875286914)</span>
                                 ) : (
-                                  <span className="text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full font-black border border-emerald-300">
-                                    🟢 Permitido (Activo)
-                                  </span>
+                                  <span className="text-emerald-700 font-semibold">🟢 Permitido</span>
                                 )}
                               </p>
-                              <p className="text-[11px] text-[#43474d]">
-                                {sub.statusLabel} • Fecha límite de corte: <strong>{sub.cutoffDateFormatted}</strong>
+                              <p className="text-[11px] text-[#43474d] mt-0.5">
+                                Cuando el prestador pague su abono, habilitá su ingreso aquí:
                               </p>
-                              {pro.lastPaymentDate && (
-                                <p className="text-[10px] text-blue-900 font-mono">
-                                  Último pago registrado: {pro.lastPaymentDate}
-                                </p>
+                            </div>
+
+                            {/* Action Buttons for the Admin */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {onUpdateSubscription && (
+                                <>
+                                  {/* Permitir Abono Mensual */}
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateSubscription(pro.id, 'abono_mensual', 'activa')}
+                                    className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
+                                    title="El prestador abonó el mes: permitir ingreso"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    <span>Habilitar Mensual</span>
+                                  </button>
+
+                                  {/* Permitir Abono Anual */}
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateSubscription(pro.id, 'abono_anual', 'activa')}
+                                    className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
+                                    title="El prestador abonó el año: permitir ingreso"
+                                  >
+                                    <Sparkles className="w-3 h-3" />
+                                    <span>Habilitar Anual</span>
+                                  </button>
+
+                                  {/* Forzar/Simular Caducidad */}
+                                  {!isExpired ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => onUpdateSubscription(pro.id, 'prueba_gratuita', 'caducada')}
+                                      className="px-2 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
+                                      title="Bloquear ingreso simulando caducidad de prueba"
+                                    >
+                                      Bloquear (Caducar)
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => onUpdateSubscription(pro.id, 'prueba_gratuita', 'activa')}
+                                      className="px-2 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
+                                      title="Dar 30 días de prueba gratuita"
+                                    >
+                                      Reiniciar 30 días
+                                    </button>
+                                  )}
+                                </>
+                              )}
+
+                              {/* Preview cartel directly */}
+                              {onShowExpiredModal && (
+                                <button
+                                  type="button"
+                                  onClick={() => onShowExpiredModal(pro)}
+                                  className="px-2 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 text-[11px] font-semibold rounded-lg cursor-pointer"
+                                  title="Ver cómo ve el prestador el cartel de contacto al 3875286914"
+                                >
+                                  Ver Cartel
+                                </button>
                               )}
                             </div>
-                          </div>
-
-                          {/* Control de Fecha de Pago y Acciones para el Administrador */}
-                          <div className="pt-2 border-t border-gray-200/80 flex flex-wrap items-center justify-between gap-2">
-                            {onUpdateSubscription && (
-                              <div className="flex items-center gap-2 flex-wrap w-full">
-                                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-gray-300 text-xs shadow-2xs">
-                                  <Calendar className="w-3.5 h-3.5 text-[#9e4300]" />
-                                  <span className="text-[11px] font-bold text-gray-700">Fecha de Pago:</span>
-                                  <input
-                                    type="date"
-                                    value={proPaymentDate}
-                                    onChange={(e) => setPaymentDateInputs(prev => ({ ...prev, [pro.id]: e.target.value }))}
-                                    className="text-xs bg-transparent focus:outline-none font-medium text-[#001428]"
-                                  />
-                                </div>
-
-                                {/* Registrar Abono Mensual */}
-                                <button
-                                  type="button"
-                                  onClick={() => onUpdateSubscription(pro.id, 'abono_mensual', 'activa', proPaymentDate)}
-                                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
-                                  title="Registrar pago: activa el servicio y se cortará automáticamente a los 30 días"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                  <span>Registrar Pago Mensual (30d)</span>
-                                </button>
-
-                                {/* Registrar Abono Anual */}
-                                <button
-                                  type="button"
-                                  onClick={() => onUpdateSubscription(pro.id, 'abono_anual', 'activa', proPaymentDate)}
-                                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
-                                  title="Registrar pago anual (365 días)"
-                                >
-                                  <Sparkles className="w-3.5 h-3.5" />
-                                  <span>Registrar Anual</span>
-                                </button>
-
-                                {/* Cortar o Caducar Ingreso */}
-                                {!sub.isExpired ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => onUpdateSubscription(pro.id, pro.subscriptionPlan || 'prueba_gratuita', 'caducada')}
-                                    className="px-2.5 py-1.5 bg-red-100 hover:bg-red-200 text-red-800 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                                    title="Cortar el ingreso inmediatamente por falta de pago"
-                                  >
-                                    Cortar Acceso (Caducar)
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => onUpdateSubscription(pro.id, 'prueba_gratuita', 'activa', proPaymentDate)}
-                                    className="px-2.5 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                                    title="Dar 30 días de prueba gratuita adicionales"
-                                  >
-                                    Reiniciar 30 días
-                                  </button>
-                                )}
-
-                                {/* Preview cartel directly */}
-                                {onShowExpiredModal && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onShowExpiredModal(pro)}
-                                    className="px-2.5 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-semibold rounded-xl cursor-pointer ml-auto"
-                                    title="Ver cómo ve el prestador el cartel de contacto al 3875286914"
-                                  >
-                                    Ver Cartel
-                                  </button>
-                                )}
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -2446,6 +3528,18 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                 className="max-h-[65vh] w-auto max-w-full object-contain rounded-xl border border-gray-300 shadow-sm"
               />
             </div>
+
+            {/* Visual Quality Analysis if viewing a DNI */}
+            {viewingDocumentModal.title.toLowerCase().includes('dni') && (
+              <div className="p-3.5 bg-slate-50 border-t border-gray-200">
+                <DniQualityBadge
+                  quality={viewingModalDniQuality}
+                  isAnalyzing={isAnalyzingModalDni}
+                  showAdminAdvice={false}
+                />
+              </div>
+            )}
+
             <div className="p-3 bg-white border-t border-gray-200 flex items-center justify-between text-xs">
               <span className="text-[11px] text-[#74777e]">
                 Documento respaldatorio cargado por el prestador
@@ -2462,6 +3556,84 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
         </div>
       )}
 
+      {/* Modal de Cámara en Vivo para Selfie Obligatoria */}
+      {isLiveCameraOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full overflow-hidden shadow-2xl border border-gray-200 animate-in zoom-in-95 duration-150">
+            <div className="p-3.5 bg-[#0f2942] text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Camera className="w-4 h-4 text-[#ffdbcb]" />
+                <h4 className="font-bold text-xs">Cámara en Vivo - Foto de Rostro</h4>
+              </div>
+              <button
+                type="button"
+                onClick={stopLiveCamera}
+                className="p-1 text-white hover:bg-white/20 rounded-full cursor-pointer transition-colors"
+                title="Cerrar visor"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3 bg-gray-900 text-center">
+              {cameraError ? (
+                <div className="p-4 bg-red-900/60 border border-red-500 rounded-xl text-white text-xs space-y-3">
+                  <p>{cameraError}</p>
+                  <label className="block py-2.5 px-3 bg-white text-[#9e4300] font-bold rounded-xl cursor-pointer">
+                    Usar Cámara Frontal Nativa
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="user"
+                      onChange={(e) => {
+                        handleNativeCameraCapture(e);
+                        stopLiveCamera();
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              ) : (
+                <>
+                  <div className="relative rounded-2xl overflow-hidden border-2 border-[#ffdbcb] aspect-square bg-black flex items-center justify-center">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover scale-x-[-1]"
+                    />
+                    <div className="absolute inset-0 pointer-events-none border-2 border-white/20 rounded-full m-8 border-dashed" />
+                  </div>
+
+                  <p className="text-[11px] text-gray-300">
+                    Ubicá tu rostro en el centro y presioná el botón para capturar tu foto de alta.
+                  </p>
+
+                  <div className="flex items-center justify-center gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={stopLiveCamera}
+                      className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={captureFromVideo}
+                      className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black rounded-xl shadow-md flex items-center gap-2 cursor-pointer active:scale-95 transition-all"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>Capturar Foto</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de Despliegue con Docker Compose exclusivo para el Administrador */}
       <DockerDeployModal
         isOpen={isDockerModalOpen}
@@ -2473,6 +3645,72 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
         isOpen={isApkModalOpen}
         onClose={() => setIsApkModalOpen(false)}
       />
+
+      {/* ========================================================================= */}
+      {/* MODAL LIGHTBOX: VER FOTO DE OBRA EN TAMAÑO COMPLETO CON DETALLES           */}
+      {/* ========================================================================= */}
+      {selectedProPhotoModal && (
+        <div 
+          onClick={() => setSelectedProPhotoModal(null)}
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-150 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="relative max-w-2xl w-full bg-[#001428] rounded-2xl overflow-hidden border border-white/20 shadow-2xl space-y-3 p-4 text-white cursor-default"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-[#a3f69c]" />
+                <span className="font-bold text-xs sm:text-sm">
+                  {selectedProPhotoModal.title}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedProPhotoModal(null)}
+                className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer text-xs"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[65vh] flex items-center justify-center overflow-hidden rounded-xl bg-black">
+              <img
+                src={selectedProPhotoModal.photoUrl}
+                alt={selectedProPhotoModal.title}
+                className="max-h-[65vh] w-auto max-w-full object-contain"
+              />
+            </div>
+
+            <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-1.5 text-xs">
+              <div className="flex items-center justify-between text-gray-300 text-[11px] flex-wrap gap-2">
+                <span>Cliente: <strong className="text-white">{selectedProPhotoModal.clientName}</strong> • {selectedProPhotoModal.neighborhood}</span>
+                {selectedProPhotoModal.contractNumber && (
+                  <span className="bg-white/15 px-2 py-0.5 rounded font-mono text-[10px] text-amber-300 font-bold">
+                    #{selectedProPhotoModal.contractNumber}
+                  </span>
+                )}
+              </div>
+              {selectedProPhotoModal.comment && (
+                <p className="text-[11px] text-gray-200 italic">
+                  "{selectedProPhotoModal.comment}"
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[10px] text-gray-400">Oficios y Servicios Valle de Lerma</span>
+              <button
+                type="button"
+                onClick={() => setSelectedProPhotoModal(null)}
+                className="px-4 py-1.5 bg-white text-[#001428] font-bold text-xs rounded-xl cursor-pointer hover:bg-gray-200 transition-colors shadow-xs"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

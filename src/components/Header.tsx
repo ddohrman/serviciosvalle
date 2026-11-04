@@ -128,41 +128,7 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden xs:inline">Instalar</span>
           </button>
 
-          {/* BOTÓN DIRECTO PANEL ADMINISTRADOR / DESARROLLADOR JORGE LOPEZ (Solo visible para Jorge) */}
-          {isDevAdmin && onOpenAdmin && (
-            <button
-              onClick={onOpenAdmin}
-              className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs border text-left active:scale-95 ${
-                isAdminActive
-                  ? 'bg-[#0f2942] text-white border-[#0f2942] shadow-sm'
-                  : 'bg-orange-50 hover:bg-orange-100 text-[#001428] border-orange-300'
-              }`}
-              title="Panel Administrador - Jorge Lopez (Desarrollador) • Tel: 3875286914"
-              aria-label="Abrir Panel Administrador - Jorge Lopez Desarrollador"
-            >
-              <div className="w-7 h-7 rounded-lg bg-[#9e4300] text-white flex items-center justify-center shrink-0 shadow-2xs">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <div className="flex flex-col leading-none">
-                <div className="flex items-center gap-1">
-                  <span className="font-extrabold text-[11px] sm:text-xs text-[#001428] truncate max-w-[75px] xs:max-w-none">
-                    Jorge Lopez
-                  </span>
-                  <span className="text-[8px] sm:text-[9px] bg-[#9e4300] text-white font-bold px-1.5 py-0.2 rounded shrink-0">
-                    Desarrollador
-                  </span>
-                </div>
-                <span className="text-[9px] sm:text-[10px] text-[#5a5f67] font-semibold mt-0.5">
-                  Tel: 3875286914
-                </span>
-              </div>
-              {pendingApprovalsCount !== undefined && pendingApprovalsCount > 0 && (
-                <span className="bg-[#9e4300] text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shrink-0">
-                  {pendingApprovalsCount}
-                </span>
-              )}
-            </button>
-          )}
+
 
           {loggedInPro ? (
             /* Prestador Logueado Mode */

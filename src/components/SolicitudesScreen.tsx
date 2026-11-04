@@ -79,6 +79,7 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
   const [quotingRequest, setQuotingRequest] = useState<ServiceRequest | null>(null);
   const [quoteAmountInput, setQuoteAmountInput] = useState<string>('');
   const [quoteNoteInput, setQuoteNoteInput] = useState<string>('');
+  const [selectedPhotoLightbox, setSelectedPhotoLightbox] = useState<string | null>(null);
 
   // Formateador de moneda Pesos Argentinos (ARS) en tiempo real con soporte de centavos
   const formatARS = (val: string | number): string => {
@@ -181,30 +182,50 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
     setPhotoCommentInput('');
   };
 
-  // Provider calculations
+  // Provider calculations: Filtro estricto para mostrar solo los trabajos solicitados a este prestador
   const isTradeRelevant = (reqTrade: string, proTrade: string) => {
     const r = reqTrade.toLowerCase();
     const p = proTrade.toLowerCase();
     return r.includes(p) || p.includes(r) || p.split(' ').some(word => word.length > 3 && r.includes(word));
   };
 
+  // 1. Solicitudes pedidas directamente a este trabajador (por ID, nombre, teléfono o mención directa)
+  const isJobRequestedToMe = (req: ServiceRequest): boolean => {
+    if (!loggedInPro) return false;
+    if (req.assignedWorkerId && req.assignedWorkerId === loggedInPro.id) return true;
+    if (req.quotedBy && req.quotedBy.toLowerCase() === loggedInPro.name.toLowerCase()) return true;
+    if (req.phoneContact && loggedInPro.phone && req.phoneContact.replace(/\D/g, '') === loggedInPro.phone.replace(/\D/g, '')) return true;
+    if (req.title && req.title.toLowerCase().includes(loggedInPro.name.toLowerCase())) return true;
+    if (req.description && req.description.toLowerCase().includes(loggedInPro.name.toLowerCase())) return true;
+    return false;
+  };
+
+  // 2. Solicitudes abiertas del mismo rubro que no estén asignadas a otro profesional
+  const isGeneralJobForMyTrade = (req: ServiceRequest): boolean => {
+    if (!loggedInPro) return false;
+    // Si ya está asignado o contratado por otro profesional específico, no mostrar a este prestador
+    if (req.assignedWorkerId && req.assignedWorkerId !== loggedInPro.id) return false;
+    if (req.quotedBy && req.quotedBy.toLowerCase() !== loggedInPro.name.toLowerCase() && (req.status === 'contratado' || req.status === 'completado')) return false;
+    return isTradeRelevant(req.trade, loggedInPro.trade);
+  };
+
   const proRelevantRequests = loggedInPro
-    ? requests.filter(r => isTradeRelevant(r.trade, loggedInPro.trade) || r.quotedBy === loggedInPro.name || r.assignedWorkerId === loggedInPro.id)
+    ? requests.filter(r => isJobRequestedToMe(r) || isGeneralJobForMyTrade(r))
     : [];
 
   const proRequestsToDisplay = loggedInPro
     ? requests.filter(req => {
         if (proFilter === 'nuevos') {
-          return req.status === 'en_espera';
+          return req.status === 'en_espera' && (isJobRequestedToMe(req) || isGeneralJobForMyTrade(req));
         }
         if (proFilter === 'cotizados') {
-          return req.status === 'cotizado' && req.quotedBy === loggedInPro.name;
+          return req.status === 'cotizado' && (isJobRequestedToMe(req) || req.quotedBy === loggedInPro.name);
         }
         if (proFilter === 'contratados') {
-          return (req.status === 'contratado' || req.status === 'completado') && 
-                 (req.assignedWorkerId === loggedInPro.id || req.quotedBy === loggedInPro.name);
+          return (req.status === 'contratado' || req.status === 'completado') && isJobRequestedToMe(req);
         }
-        return true; // 'todos'
+        // 'todos': únicamente trabajos solicitados a este trabajador o de su rubro directo
+        return isJobRequestedToMe(req) || isGeneralJobForMyTrade(req);
       })
     : [];
 
@@ -288,10 +309,10 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
           {/* Quick Sub-Filter Tabs */}
           <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs font-bold">
             {[
-              { id: 'nuevos', label: 'Nuevos pedidos', count: requests.filter(r => r.status === 'en_espera').length },
-              { id: 'cotizados', label: 'Mis cotizaciones', count: requests.filter(r => r.status === 'cotizado' && r.quotedBy === loggedInPro.name).length },
-              { id: 'contratados', label: 'Asignados', count: requests.filter(r => (r.status === 'contratado' || r.status === 'completado') && (r.assignedWorkerId === loggedInPro.id || r.quotedBy === loggedInPro.name)).length },
-              { id: 'todos', label: 'Todos', count: requests.length }
+              { id: 'nuevos', label: 'Nuevos pedidos', count: requests.filter(r => r.status === 'en_espera' && (isJobRequestedToMe(r) || isGeneralJobForMyTrade(r))).length },
+              { id: 'cotizados', label: 'Mis cotizaciones', count: requests.filter(r => r.status === 'cotizado' && (isJobRequestedToMe(r) || r.quotedBy === loggedInPro.name)).length },
+              { id: 'contratados', label: 'Asignados', count: requests.filter(r => (r.status === 'contratado' || r.status === 'completado') && isJobRequestedToMe(r)).length },
+              { id: 'todos', label: 'Todos', count: proRelevantRequests.length }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -435,15 +456,32 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
 
                         {req.completedJobPhoto ? (
                           <div className="pt-1">
-                            <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-900 mb-1">
-                              <Check className="w-3.5 h-3.5 text-emerald-700" />
-                              <span>Foto de obra certificada subida</span>
+                            <div className="flex items-center justify-between text-[11px] font-bold text-emerald-900 mb-1">
+                              <span className="flex items-center gap-1">
+                                <Check className="w-3.5 h-3.5 text-emerald-700" />
+                                <span>Foto de obra certificada</span>
+                              </span>
+                              <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                Tocá para ampliar
+                              </span>
                             </div>
-                            <img
-                              src={req.completedJobPhoto}
-                              alt="Obra finalizada"
-                              className="w-full h-32 object-cover rounded-lg border border-emerald-200"
-                            />
+                            <div
+                              onClick={() => setSelectedPhotoLightbox(req.completedJobPhoto || null)}
+                              className="relative cursor-pointer group overflow-hidden rounded-xl border border-emerald-300 shadow-2xs"
+                              title="Tocar para ver en tamaño completo"
+                            >
+                              <img
+                                src={req.completedJobPhoto}
+                                alt="Obra finalizada"
+                                className="w-full h-36 object-cover group-hover:scale-102 transition-transform duration-200"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80';
+                                }}
+                              />
+                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold">
+                                🔍 Ver en pantalla completa
+                              </div>
+                            </div>
                           </div>
                         ) : (
                           <button
@@ -790,11 +828,23 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                               </span>
                               <span className="text-[10px] text-emerald-700">Subida en perfil</span>
                             </div>
-                            <img
-                              src={req.completedJobPhoto}
-                              alt="Foto de la obra finalizada"
-                              className="w-full h-40 object-cover rounded-lg"
-                            />
+                            <div
+                              onClick={() => setSelectedPhotoLightbox(req.completedJobPhoto || null)}
+                              className="relative cursor-pointer group overflow-hidden rounded-lg border border-emerald-300"
+                              title="Tocar para ampliar foto"
+                            >
+                              <img
+                                src={req.completedJobPhoto}
+                                alt="Foto de la obra finalizada"
+                                className="w-full h-40 object-cover group-hover:scale-102 transition-transform duration-200"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80';
+                                }}
+                              />
+                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold">
+                                🔍 Ver en pantalla completa
+                              </div>
+                            </div>
                             {req.completedJobComment && (
                               <p className="text-xs text-[#43474d] italic bg-gray-50 p-2 rounded-lg">
                                 "{req.completedJobComment}"
@@ -1364,6 +1414,54 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
           onOpenReport={onOpenReport}
           onSendQuote={onSendQuote}
         />
+      )}
+
+      {/* ========================================================================= */}
+      {/* LIGHTBOX MODAL: FULL PHOTO VIEWER */}
+      {/* ========================================================================= */}
+      {selectedPhotoLightbox && (
+        <div 
+          onClick={() => setSelectedPhotoLightbox(null)}
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="relative max-w-2xl w-full bg-[#001428] rounded-2xl overflow-hidden border border-white/20 shadow-2xl space-y-3 p-3 sm:p-4 cursor-default"
+          >
+            <div className="flex items-center justify-between text-white pb-2 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span className="font-bold text-xs sm:text-sm">Foto de Obra Certificada</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedPhotoLightbox(null)}
+                className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer text-xs"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] flex items-center justify-center overflow-hidden rounded-xl bg-black">
+              <img
+                src={selectedPhotoLightbox}
+                alt="Foto de obra ampliada"
+                className="max-h-[70vh] w-auto max-w-full object-contain"
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-gray-300 pt-1">
+              <span>Certificada en Valle de Lerma</span>
+              <button
+                type="button"
+                onClick={() => setSelectedPhotoLightbox(null)}
+                className="px-3 py-1 bg-white text-[#001428] font-bold rounded-lg cursor-pointer hover:bg-gray-200"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -489,13 +489,11 @@ export const normalizeFilterText = (str: string | undefined | null): string => {
 export const isWorkerInNeighborhood = (
   workerNeighborhood: string | undefined | null,
   selectedNeighborhood: string,
-  customNeighborhoods?: Neighborhood[]
+  customNeighborhoods?: Neighborhood[],
+  coverageZones?: string[]
 ): boolean => {
   if (!selectedNeighborhood || selectedNeighborhood === 'todos') {
     return true;
-  }
-  if (!workerNeighborhood || !workerNeighborhood.trim()) {
-    return false;
   }
 
   const list = customNeighborhoods || NEIGHBORHOODS;
@@ -507,6 +505,22 @@ export const isWorkerInNeighborhood = (
 
   const targetName = targetObj ? normalizeFilterText(targetObj.name) : normalizeFilterText(selectedNeighborhood);
   const targetId = targetObj ? normalizeFilterText(targetObj.id) : normalizeFilterText(selectedNeighborhood);
+
+  // Check if target neighborhood is in worker's coverageZones (Localidades donde ofrece servicios)
+  if (coverageZones && Array.isArray(coverageZones) && coverageZones.length > 0) {
+    const hasCoverage = coverageZones.some(zone => {
+      const zNorm = normalizeFilterText(zone);
+      return zNorm === targetName || zNorm === targetId || zNorm.includes(targetName) || zNorm.includes(targetId);
+    });
+    if (hasCoverage) {
+      return true;
+    }
+  }
+
+  if (!workerNeighborhood || !workerNeighborhood.trim()) {
+    return false;
+  }
+
   const workerLoc = normalizeFilterText(workerNeighborhood);
 
   if (!workerLoc) {

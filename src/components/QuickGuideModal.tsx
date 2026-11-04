@@ -13,7 +13,9 @@ import {
   Sparkles, 
   CheckCircle2, 
   Star,
-  Check
+  Check,
+  MessageSquare,
+  Lock
 } from 'lucide-react';
 
 interface QuickGuideModalProps {
@@ -143,23 +145,39 @@ export const QuickGuideModal: React.FC<QuickGuideModalProps> = ({ isOpen, onClos
     {
       id: 'contactar',
       stepNumber: 4,
-      badge: 'Paso 4 • Contacto Directo',
-      badgeColor: 'bg-emerald-100 text-emerald-900 border-emerald-200',
-      title: 'Contactá directo por WhatsApp',
-      description: 'Sin intermediarios ni comisiones: tocá el botón verde para chatear directamente con el profesional y pedir cotización.',
-      icon: <MessageCircle className="w-6 h-6 text-white" />,
-      iconBg: 'bg-gradient-to-tr from-[#1ebd5a] to-[#25D366]',
-      tip: 'El servicio es 100% gratuito para vecinos del Valle de Lerma por tiempo ilimitado.',
+      badge: 'Paso 4 • Chat Privado y Seguro',
+      badgeColor: 'bg-emerald-100 text-emerald-950 border-emerald-300',
+      title: 'Comunicación por Chat Privado de la Aplicación',
+      description: 'Tu seguridad y tranquilidad son lo más importante: la comunicación se realiza mediante el chat privado directo de la aplicación. Es un canal seguro que guarda todas las conversaciones, acuerdos, presupuestos y detalles de la obra desde el inicio hasta la finalización del trabajo, el pago y la conformidad del cliente, manteniéndose guardado por un período de 30 días posteriores. Chatear por la app garantiza el respaldo de la operación tanto para el vecino como para el trabajador.',
+      icon: <ShieldCheck className="w-6 h-6 text-white" />,
+      iconBg: 'bg-gradient-to-tr from-[#001428] via-[#0b2844] to-emerald-600',
+      tip: '¿Por qué conviene usar el chat de la app y no WhatsApp? Porque en la app queda constancia certificada de lo pactado, protegiéndote ante cualquier duda o reclamo.',
       previewComponent: (
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
-          <div className="flex items-center justify-center">
-            <div className="w-full py-2 px-3 rounded-lg bg-[#25D366] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs">
-              <MessageCircle className="w-4 h-4 fill-current" />
-              <span>Contactar por WhatsApp</span>
+          <div className="bg-white rounded-lg p-2.5 border border-emerald-300 shadow-2xs space-y-1.5">
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+              <span className="text-[11px] font-bold text-[#001428] flex items-center gap-1">
+                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" /> Chat Privado Directo
+              </span>
+              <span className="text-[9px] bg-emerald-100 text-emerald-900 font-extrabold px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                <ShieldCheck className="w-3 h-3 text-emerald-600" /> Canal Seguro
+              </span>
+            </div>
+            <div className="bg-emerald-50/80 p-2 rounded-lg text-[10px] text-emerald-950 space-y-0.5 border border-emerald-100">
+              <span className="font-bold flex items-center gap-1 text-emerald-900">
+                <Lock className="w-3 h-3 text-emerald-700" /> Conversaciones y presupuestos respaldados:
+              </span>
+              <p className="text-[10px] text-emerald-800 leading-snug">
+                Se guardan durante todo el trabajo y permanecen archivados 30 días posteriores al pago y conformidad.
+              </p>
+            </div>
+            <div className="w-full py-2 px-3 rounded-lg bg-[#001428] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs">
+              <MessageSquare className="w-4 h-4 text-emerald-400" />
+              <span>Chatear por el Canal Seguro</span>
             </div>
           </div>
-          <p className="text-[10px] text-center text-slate-500">
-            Respuesta rápida y trato directo con el trabajador.
+          <p className="text-[10px] text-center text-slate-600 leading-tight">
+            Trato directo con el trabajador con garantía y respaldo de tu operación.
           </p>
         </div>
       )

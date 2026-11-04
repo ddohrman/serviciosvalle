@@ -19,8 +19,8 @@ interface SystemVersionFooterProps {
   isDevAdmin?: boolean;
 }
 
-export const APP_VERSION = '2.5.0';
-export const APP_LAST_MODIFIED = '30 de Octubre de 2026 - 18:00 hs';
+export const APP_VERSION = '2.10.0';
+export const APP_LAST_MODIFIED = '4 de Noviembre de 2026 - 22:35 hs';
 
 export const SystemVersionFooter: React.FC<SystemVersionFooterProps> = ({
   onOpenAdminAuth,

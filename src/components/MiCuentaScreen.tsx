@@ -24,9 +24,10 @@ import {
   Smartphone,
   AlertTriangle,
   Lightbulb,
-  Copy
+  Copy,
+  MessageSquare
 } from 'lucide-react';
-import { UserProfile, Professional, Neighborhood, ServiceRequest, UserFeedback } from '../types';
+import { UserProfile, Professional, Neighborhood, ServiceRequest, UserFeedback, UsefulPhone } from '../types';
 import { EMERGENCY_NUMBERS } from '../data/mockData';
 import { saveDevicePhone, getOrCreateDeviceId } from '../utils/deviceTracker';
 import { getLocalUserFeedbacks } from '../utils/feedbackService';
@@ -39,7 +40,9 @@ interface MiCuentaScreenProps {
   onUpdateProfile?: (updated: Partial<UserProfile>) => void;
   onSelectWorker: (worker: Professional) => void;
   onContactWhatsApp: (worker: Professional) => void;
+  onStartInternalChat?: (worker: Professional) => void;
   onRemoveFavorite: (id: string) => void;
+  usefulPhones?: UsefulPhone[];
   onOpenAdminPanel?: () => void;
   isDevAdmin?: boolean;
   onTriggerAdminUnlock?: () => void;
@@ -63,7 +66,9 @@ export const MiCuentaScreen: React.FC<MiCuentaScreenProps> = ({
   onUpdateProfile,
   onSelectWorker,
   onContactWhatsApp,
+  onStartInternalChat,
   onRemoveFavorite,
+  usefulPhones,
   onOpenAdminPanel,
   isDevAdmin = false,
   onTriggerAdminUnlock,
@@ -364,11 +369,18 @@ export const MiCuentaScreen: React.FC<MiCuentaScreenProps> = ({
 
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
-                    onClick={() => onContactWhatsApp(pro)}
-                    className="h-8 px-2.5 rounded-lg bg-[#25D366] text-white text-xs font-bold flex items-center gap-1 shadow-2xs hover:bg-[#20bd5a] cursor-pointer"
+                    onClick={() => {
+                      if (onStartInternalChat) {
+                        onStartInternalChat(pro);
+                      } else {
+                        onContactWhatsApp(pro);
+                      }
+                    }}
+                    className="h-8 px-2.5 rounded-lg bg-[#001428] hover:bg-[#0f2942] active:scale-95 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all"
+                    title="Abrir chat interno seguro con el prestador"
                   >
-                    <MessageCircle className="w-3.5 h-3.5 fill-current" />
-                    <span className="hidden sm:inline">WhatsApp</span>
+                    <MessageSquare className="w-3.5 h-3.5 text-[#ffdbcb]" />
+                    <span>Chat Interno</span>
                   </button>
                   <button
                     onClick={() => onRemoveFavorite(pro.id)}
@@ -440,7 +452,7 @@ export const MiCuentaScreen: React.FC<MiCuentaScreenProps> = ({
         </h2>
 
         <div className="grid grid-cols-1 gap-2">
-          {EMERGENCY_NUMBERS.map((n, i) => (
+          {(usefulPhones || EMERGENCY_NUMBERS).map((n, i) => (
             <a
               key={i}
               href={`tel:${n.phone.replace(/[^0-9]/g, '')}`}

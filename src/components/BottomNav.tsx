@@ -37,13 +37,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       badge: isProLoggedIn ? '30d' : undefined,
       badgeColor: isProLoggedIn ? 'bg-[#ffdbcb] text-[#783100]' : undefined,
     },
-    ...(isDevAdmin ? [{
-      id: 'admin',
-      label: 'Jorge (Dev)',
-      icon: ShieldCheck,
-      badge: pendingApprovalsCount !== undefined && pendingApprovalsCount > 0 ? pendingApprovalsCount : undefined,
-      badgeColor: 'bg-[#9e4300] text-white',
-    }] : []),
+
     {
       id: 'mi-cuenta',
       label: 'Mi Cuenta',

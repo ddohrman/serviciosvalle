@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, AlertCircle, Phone, MessageCircle, ShieldAlert, Zap, Flame, Building2 } from 'lucide-react';
-import { Professional } from '../types';
+import { Professional, UsefulPhone } from '../types';
 import { EMERGENCY_NUMBERS } from '../data/mockData';
 
 interface EmergencyModalProps {
@@ -8,13 +8,15 @@ interface EmergencyModalProps {
   onClose: () => void;
   onContactWhatsApp: (worker: Professional, defaultMessage: string) => void;
   onSelectWorker: (worker: Professional) => void;
+  usefulPhones?: UsefulPhone[];
 }
 
 export const EmergencyModal: React.FC<EmergencyModalProps> = ({
   emergencyPros,
   onClose,
   onContactWhatsApp,
-  onSelectWorker
+  onSelectWorker,
+  usefulPhones
 }) => {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/65 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -119,7 +121,7 @@ export const EmergencyModal: React.FC<EmergencyModalProps> = ({
               Teléfonos de Emergencia Pública en el Valle de Lerma
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {EMERGENCY_NUMBERS.map((num, idx) => (
+              {(usefulPhones || EMERGENCY_NUMBERS).map((num, idx) => (
                 <a
                   key={idx}
                   href={`tel:${num.phone.replace(/[^0-9]/g, '')}`}

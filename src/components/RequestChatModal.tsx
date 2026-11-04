@@ -272,7 +272,7 @@ export const RequestChatModal: React.FC<RequestChatModalProps> = ({
               </button>
             </div>
             <p className="text-[11px] leading-relaxed text-slate-300">
-              Cada mensaje intercambiado se almacena con marca de tiempo criptográfica y se conserva durante exactamente <strong>30 días naturales</strong>. Esto permite al Administrador (Jorge Lopez) auditar acuerdos, precios y condiciones en caso de desacuerdos o reclamos de calidad.
+              Cada mensaje intercambiado se almacena con marca de tiempo criptográfica y se conserva durante <strong>todo el tiempo que dure el trabajo</strong> (desde la solicitud y presupuesto hasta el pago y la conformidad mutua). Una vez finalizado el trabajo y aceptado el pago, los registros se resguardan por <strong>30 días adicionales</strong> para garantía legal y resolución de reclamos.
             </p>
           </div>
         )}

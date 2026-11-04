@@ -45,6 +45,16 @@ export interface Professional {
   certificatePhotoUrl?: string;
   dniNumber?: string;
   dniPhotoUrl?: string;
+  dniQuality?: {
+    isLegible: boolean;
+    status: string;
+    sharpnessScore: number;
+    brightnessScore: number;
+    isBlurry: boolean;
+    isLowLight: boolean;
+    isOverexposed: boolean;
+    analyzedAt?: string;
+  };
   approvalStatus?: 'aprobado' | 'pendiente' | 'rechazado';
   submissionDate?: string;
   rejectionReason?: string;
@@ -63,31 +73,40 @@ export interface Professional {
   subscriptionPlan?: 'prueba_gratuita' | 'abono_mensual' | 'abono_anual';
   subscriptionStatus?: 'activa' | 'caducada';
   subscriptionEndDate?: string;
+  lastPaymentDate?: string; // Fecha de último pago de abono mensual
   isTrialExpired?: boolean;
-  lastPaymentDate?: string; // Fecha en que el prestador realizó el último abono (YYYY-MM-DD o ISO)
-  paymentValidUntil?: string; // Fecha límite de corte del abono (30 días tras lastPaymentDate)
-  lastPaymentAmount?: number;
-  phoneNormalized?: string; // Teléfono normalizado sin símbolos ni prefijos para evitar registros duplicados
   isExample?: boolean;
   palabrasClave?: string[]; // Array de strings con palabras clave configuradas por el prestador
   searchKeywords?: string[];
   searchKeywordsText?: string;
+  coverageZones?: string[]; // Localidades donde ofrece sus servicios (Cerrillos, La Merced, El Carril, etc.)
+  photoTakenAt?: string; // Fecha y hora exacta de captura en vivo de la foto
+  phoneVerified?: boolean; // Verificado mediante código de validación
   services: ServiceItem[];
   completedJobs: CompletedJob[];
   reviews: Review[];
 }
 
 export interface TrialRecord {
-  id: string; // e.g. "trial_3875286914"
+  id: string;
   phone: string;
-  normalizedPhone: string;
-  proId: string;
-  name: string;
-  trade: string;
+  workerName?: string;
   registeredAt: string;
-  trialEndDate: string;
+  trialStartDate?: string;
+  trialEndDate?: string;
   deviceId?: string;
-  notes?: string;
+  ipAddress?: string;
+  status?: string;
+  [key: string]: any;
+}
+
+export interface UsefulPhone {
+  id?: string;
+  name: string;
+  phone: string;
+  icon?: string;
+  neighborhood?: string;
+  description?: string;
 }
 
 export interface ProAccount {

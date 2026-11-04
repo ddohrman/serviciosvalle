@@ -34,27 +34,20 @@ import {
   CornerDownRight,
   RefreshCw,
   Layers,
-  Package
+  Package,
+  ChevronDown
 } from 'lucide-react';
-import { AppAnalytics, Professional, DeviceAccessLog, ChatMessage, UserFeedback, ServiceRequest, TrialRecord } from '../types';
-import { getProSubscriptionDetails, normalizePhoneNumber, calculateCutoffDate } from '../utils/subscriptionUtils';
+import { AppAnalytics, Professional, DeviceAccessLog, ChatMessage, UserFeedback, ServiceRequest } from '../types';
 import { subscribeToDeviceLogs } from '../utils/deviceTracker';
 import { subscribeToSecurityChatLogs, getRemainingSecurityDays, downloadChatsAsTextFile } from '../utils/chatService';
 import { subscribeToUserFeedbacks, updateFeedbackStatus } from '../utils/feedbackService';
-import { generateAndDownloadDeviceAuditPdf } from '../utils/pdfReportGenerator';
+import { generateAndDownloadDeviceAuditPdf, generateAndDownloadMonthlyContractsPdf } from '../utils/pdfReportGenerator';
 import { seedAllDemoData } from '../lib/firebase';
 
 interface AdminStatsDashboardProps {
   analytics: AppAnalytics;
   professionals: Professional[];
   requests?: ServiceRequest[];
-  trialRecords?: TrialRecord[];
-  onUpdateSubscription?: (
-    proId: string, 
-    plan: 'prueba_gratuita' | 'abono_mensual' | 'abono_anual', 
-    status: 'activa' | 'caducada',
-    paymentDate?: string
-  ) => void;
   onSelectFilter: (filter: 'todos' | 'prueba_activa' | 'prueba_caducada' | 'continuando_uso' | 'pendiente') => void;
   onSwitchToPrestadores: () => void;
   onOpenApkModal?: () => void;
@@ -65,8 +58,6 @@ export const AdminStatsDashboard: React.FC<AdminStatsDashboardProps> = ({
   analytics,
   professionals,
   requests = [],
-  trialRecords = [],
-  onUpdateSubscription,
   onSelectFilter,
   onSwitchToPrestadores,
   onOpenApkModal,
@@ -76,8 +67,9 @@ export const AdminStatsDashboard: React.FC<AdminStatsDashboardProps> = ({
   const [deviceLogs, setDeviceLogs] = useState<DeviceAccessLog[]>([]);
   const [deviceSearchQuery, setDeviceSearchQuery] = useState('');
   const [deviceFilterType, setDeviceFilterType] = useState<'todos' | 'con_telefono' | 'con_favoritos'>('todos');
+  const [showImeiNote, setShowImeiNote] = useState(false);
 
-  // Real-time Chat Security Logs (30 days preservation)
+  // Real-time Chat Security Logs (Work duration + 30 days preservation)
   const [chatLogs, setChatLogs] = useState<ChatMessage[]>([]);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
   const [chatFilterRole, setChatFilterRole] = useState<'todos' | 'prestador' | 'vecino'>('todos');
@@ -112,47 +104,30 @@ export const AdminStatsDashboard: React.FC<AdminStatsDashboardProps> = ({
     };
   }, []);
 
-  // Estado local para input de fechas de pago por profesional en el dashboard
-  const [dashboardPaymentDates, setDashboardPaymentDates] = useState<Record<string, string>>({});
-  const [expandedSection, setExpandedSection] = useState<'prueba' | 'abono' | 'antifraude' | null>(null);
-
   // Prestadores calculations
   const totalPros = professionals.length;
   
-  // Activos en prueba gratuita (dentro de los 30 días)
+  // Activos en prueba gratuita (dentro de los 30 días, no caducados y sin abono pago)
   const trialActivePros = professionals.filter(p => {
-    const details = getProSubscriptionDetails(p);
-    return !details.isPaidPlan && !details.isExpired;
+    const isExpired = p.isTrialExpired || p.subscriptionStatus === 'caducada' || p.trialActive === false;
+    const isPaid = (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
+    return !isExpired && !isPaid;
   });
 
-  // Prestadores con prueba gratuita caducada / vencida (Corte de acceso aplicado)
+  // Prestadores con prueba gratuita caducada / vencida
   const trialExpiredPros = professionals.filter(p => {
-    const details = getProSubscriptionDetails(p);
-    return !details.isPaidPlan && details.isExpired;
+    const isExpired = p.isTrialExpired || p.subscriptionStatus === 'caducada' || p.trialActive === false;
+    const isPaid = (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
+    return isExpired && !isPaid;
   });
 
   // Prestadores que continúan su uso con abono activo
   const continuingUsePros = professionals.filter(p => {
-    const details = getProSubscriptionDetails(p);
-    return details.isPaidPlan && !details.isExpired;
+    return (p.subscriptionPlan === 'abono_mensual' || p.subscriptionPlan === 'abono_anual') && p.subscriptionStatus === 'activa';
   });
 
-  // Prestadores con abono mensual activo (dentro de los 30 días de su fecha de pago)
-  const abonoMensualPros = professionals.filter(p => {
-    const details = getProSubscriptionDetails(p);
-    return p.subscriptionPlan === 'abono_mensual' && !details.isExpired;
-  });
-
-  // Prestadores con abono mensual caducado / vencido (pasaron más de 30 días de su fecha de pago)
-  const abonoExpiredPros = professionals.filter(p => {
-    const details = getProSubscriptionDetails(p);
-    return p.subscriptionPlan === 'abono_mensual' && details.isExpired;
-  });
-
-  const abonoAnualPros = professionals.filter(p => {
-    const details = getProSubscriptionDetails(p);
-    return p.subscriptionPlan === 'abono_anual' && !details.isExpired;
-  });
+  const abonoMensualPros = professionals.filter(p => p.subscriptionPlan === 'abono_mensual' && p.subscriptionStatus === 'activa');
+  const abonoAnualPros = professionals.filter(p => p.subscriptionPlan === 'abono_anual' && p.subscriptionStatus === 'activa');
 
   // Pendientes de revisión por el admin
   const pendingPros = professionals.filter(p => p.approvalStatus === 'pendiente');
@@ -247,17 +222,17 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {onOpenApkModal && (
-            <button
-              type="button"
-              onClick={onOpenApkModal}
-              className="px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-green-700 hover:from-emerald-500 hover:to-green-600 active:scale-95 border border-emerald-400 text-white text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-xs shrink-0"
-              title="Descargar paquete APK instalador para celulares Android"
-            >
-              <Smartphone className="w-3.5 h-3.5 text-emerald-200" />
-              <span>Descargar APK (Android)</span>
-            </button>
-          )}
+
+
+          <button
+            type="button"
+            onClick={() => generateAndDownloadMonthlyContractsPdf(requests, professionals)}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 active:scale-95 border border-emerald-400/50 text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs shrink-0"
+            title="Generar y descargar reporte oficial en PDF de contrataciones del último mes con estado de cada servicio"
+          >
+            <FileText className="w-4 h-4 text-emerald-200" />
+            <span>Reporte Contrataciones (PDF)</span>
+          </button>
 
           <button
             type="button"
@@ -297,140 +272,7 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
         </div>
       </div>
 
-      {/* SECCIÓN DESTACADA: PAQUETES OFICIALES DE DESCARGA Y DESPLIEGUE */}
-      <div className="bg-gradient-to-br from-[#001428] via-[#09223a] to-[#122e4d] p-5 rounded-2xl border border-amber-400/30 shadow-md text-white space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-amber-400 text-[#001428] flex items-center justify-center font-bold shadow-xs">
-              <Package className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="text-sm font-black text-white">Paquetes de Descarga y Despliegue</h4>
-                <span className="text-[10px] font-black uppercase tracking-wider bg-amber-400 text-[#001428] px-2 py-0.5 rounded-full shadow-2xs">
-                  Actualizados
-                </span>
-              </div>
-              <p className="text-[11px] text-[#d3e4fe]">
-                Descargá el APK para celulares Android, el código fuente en ZIP o los archivos de producción para Docker
-              </p>
-            </div>
-          </div>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {/* Card 1: APK Android */}
-          <div className="p-4 rounded-xl bg-white/10 border border-white/10 hover:border-emerald-400/60 transition-all flex flex-col justify-between space-y-3">
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-emerald-300 flex items-center gap-1.5">
-                  <Smartphone className="w-4 h-4 text-emerald-400" />
-                  <span>Instalador Android (.APK)</span>
-                </span>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 px-1.5 py-0.5 rounded font-mono">
-                  APK
-                </span>
-              </div>
-              <p className="text-[11px] text-gray-200 leading-relaxed">
-                Paquete directo para instalar y actualizar en cualquier celular o tablet Android sin depender de tiendas externas.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 pt-1">
-              <a
-                href="/oficios-valle-de-lerma.apk"
-                download="oficios-valle-de-lerma.apk"
-                className="flex-1 py-2 px-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
-                title="Descargar archivo APK directamente"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Bajar .APK</span>
-              </a>
-              {onOpenApkModal && (
-                <button
-                  type="button"
-                  onClick={onOpenApkModal}
-                  className="py-2 px-2.5 bg-white/15 hover:bg-white/25 active:scale-95 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                  title="Ver instrucciones de instalación paso a paso"
-                >
-                  Guía
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Card 2: ZIP Código Fuente */}
-          <div className="p-4 rounded-xl bg-white/10 border border-white/10 hover:border-amber-400/60 transition-all flex flex-col justify-between space-y-3">
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
-                  <FileText className="w-4 h-4 text-amber-400" />
-                  <span>Código Fuente Completo</span>
-                </span>
-                <span className="text-[10px] bg-amber-500/20 text-amber-200 border border-amber-400/30 px-1.5 py-0.5 rounded font-mono">
-                  ZIP
-                </span>
-              </div>
-              <p className="text-[11px] text-gray-200 leading-relaxed">
-                Archivo ZIP completo con todo el código fuente React, Vite, Tailwind CSS, configuración de Nginx y Dockerfile.
-              </p>
-            </div>
-
-            <div className="pt-1">
-              <a
-                href="/oficios-valle-de-lerma.zip"
-                download="oficios-valle-de-lerma.zip"
-                className="w-full py-2 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-[#001428] text-xs font-black rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
-                title="Descargar archivo ZIP de la aplicación completa"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Descargar ZIP del Proyecto</span>
-              </a>
-            </div>
-          </div>
-
-          {/* Card 3: Docker Compose */}
-          <div className="p-4 rounded-xl bg-white/10 border border-white/10 hover:border-blue-400/60 transition-all flex flex-col justify-between space-y-3">
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-blue-300 flex items-center gap-1.5">
-                  <Layers className="w-4 h-4 text-blue-400" />
-                  <span>Docker para Servidor VPS</span>
-                </span>
-                <span className="text-[10px] bg-blue-500/20 text-blue-200 border border-blue-400/30 px-1.5 py-0.5 rounded font-mono">
-                  YML
-                </span>
-              </div>
-              <p className="text-[11px] text-gray-200 leading-relaxed">
-                Archivos docker-compose.yml y nginx.conf listos para desplegar en tu propio VPS con 1 solo comando.
-              </p>
-            </div>
-
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  if (onOpenDockerModal) {
-                    onOpenDockerModal();
-                  } else {
-                    const blob = new Blob([`version: '3.8'\nservices:\n  web:\n    build: .\n    ports:\n      - "80:80"\n`], { type: 'text/yaml' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'docker-compose.yml';
-                    a.click();
-                  }
-                }}
-                className="w-full py-2 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
-                title="Abrir asistente de despliegue Docker o descargar docker-compose.yml"
-              >
-                <Layers className="w-3.5 h-3.5 text-blue-200" />
-                <span>Ver y Bajar Docker</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* SECCIÓN 1: CLIENTES QUE USARON LA APP */}
       <div className="bg-white p-5 rounded-2xl border border-[#e2e8f0] shadow-xs space-y-4">
@@ -608,54 +450,6 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
               </div>
             </div>
 
-              {/* Lista Detallada de Días Restantes de Prueba Gratuita */}
-              <div className="pt-2 border-t border-amber-200/60 space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setExpandedSection(prev => prev === 'prueba' ? null : 'prueba')}
-                  className="w-full flex items-center justify-between text-xs font-bold text-[#783100] hover:text-[#5c2400] transition-colors cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>Días restantes de prueba por prestador ({totalTrials})</span>
-                  </span>
-                  <span className="text-[10px] bg-amber-100 px-2 py-0.5 rounded-full font-bold">
-                    {expandedSection === 'prueba' ? 'Ocultar ▲' : 'Ver Días ▼'}
-                  </span>
-                </button>
-
-                {expandedSection === 'prueba' && (
-                  <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-                    {[...trialActivePros, ...trialExpiredPros].map(p => {
-                      const details = getProSubscriptionDetails(p);
-                      return (
-                        <div key={p.id} className="p-2 bg-white rounded-xl border border-amber-200/80 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-                          <div className="min-w-0">
-                            <p className="font-bold text-[#001428] truncate">{p.name}</p>
-                            <p className="text-[10px] text-gray-500">{p.trade} • {p.neighborhood} • Cel: {p.phone}</p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              details.isExpired 
-                                ? 'bg-red-100 text-red-900 border border-red-200' 
-                                : details.daysRemaining <= 7 
-                                  ? 'bg-amber-100 text-amber-900 border border-amber-300' 
-                                  : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                            }`}>
-                              {details.isExpired ? 'Corte aplicado (Vencida)' : `⏳ Quedan ${details.daysRemaining} días`}
-                            </span>
-                            <span className="text-[10px] text-gray-500 font-mono">
-                              Corte: {details.cutoffDateFormatted}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-
             {/* Barra de progreso de la prueba */}
             <div className="pt-1 space-y-1">
               <div className="flex justify-between text-[10px] font-bold text-[#783100]">
@@ -671,7 +465,7 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
             </div>
           </div>
 
-          {/* BLOQUE B: LOS QUE CONTINÚAN SU USO (ABONO / PAGO CON CORTE A 30 DÍAS) */}
+          {/* BLOQUE B: LOS QUE CONTINÚAN SU USO (ABONO / PAGO) */}
           <div className="p-4.5 rounded-2xl bg-[#f0f9ff] border border-[#bae6fd] space-y-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -679,12 +473,12 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
                 <h5 className="font-black text-sm text-[#0c4a6e]">Continuando su Uso (Abonos)</h5>
               </div>
               <span className="text-xs font-black bg-blue-100 text-blue-900 px-2 py-0.5 rounded-full border border-blue-300">
-                {continuingUsePros.length} activos {abonoExpiredPros.length > 0 ? `• ${abonoExpiredPros.length} vencidos` : ''}
+                {continuingUsePros.length} prestadores
               </span>
             </div>
 
             <p className="text-[11px] text-[#0c4a6e]/80">
-              Prestadores con cuota abonada. Corte automático a los 30 días de la fecha de pago si no renuevan.
+              Prestadores que superaron la prueba y renovaron su suscripción comercial activa en la app.
             </p>
 
             {/* Desglose: Abono Mensual vs Anual */}
@@ -701,7 +495,7 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
                   </div>
                   <div>
                     <p className="text-xs font-bold text-blue-950">Abono Mensual Activo</p>
-                    <p className="text-[10px] text-blue-700">Corte exacto cada 30 días</p>
+                    <p className="text-[10px] text-blue-700">Renovación mes a mes</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -730,91 +524,6 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
                   <ArrowRight className="w-3.5 h-3.5 text-purple-700" />
                 </div>
               </div>
-
-              {/* Lista Detallada de Días Restantes de Abono con Registro de Fecha de Pago */}
-              <div className="pt-2 border-t border-blue-200/60 space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setExpandedSection(prev => prev === 'abono' ? null : 'abono')}
-                  className="w-full flex items-center justify-between text-xs font-bold text-[#0c4a6e] hover:text-[#082f49] transition-colors cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>Días restantes de servicio y registro de pago ({continuingUsePros.length + abonoExpiredPros.length})</span>
-                  </span>
-                  <span className="text-[10px] bg-blue-100 px-2 py-0.5 rounded-full font-bold">
-                    {expandedSection === 'abono' ? 'Ocultar ▲' : 'Ver y Cobrar ▼'}
-                  </span>
-                </button>
-
-                {expandedSection === 'abono' && (
-                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                    {[...continuingUsePros, ...abonoExpiredPros].map(p => {
-                      const details = getProSubscriptionDetails(p);
-                      const currentDateInput = dashboardPaymentDates[p.id] || new Date().toISOString().split('T')[0];
-
-                      return (
-                        <div key={p.id} className="p-2.5 bg-white rounded-xl border border-blue-200 text-xs space-y-2">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                            <div>
-                              <p className="font-bold text-[#001428]">{p.name}</p>
-                              <p className="text-[10px] text-gray-500">{p.trade} • {p.neighborhood} • Cel: {p.phone}</p>
-                            </div>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full self-start sm:self-auto ${
-                              details.isExpired 
-                                ? 'bg-red-100 text-red-900 border border-red-300' 
-                                : 'bg-blue-100 text-blue-900 border border-blue-300'
-                            }`}>
-                              {details.isExpired ? 'Corte aplicado (Vencido)' : `⏳ Quedan ${details.daysRemaining} días`}
-                            </span>
-                          </div>
-
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-blue-50/70 p-2 rounded-lg">
-                            <span className="text-gray-600">
-                              Último Pago: <strong>{details.paymentDateFormatted || 'Reciente'}</strong>
-                            </span>
-                            <span className="text-blue-950 font-semibold font-mono">
-                              Próximo Corte: {details.cutoffDateFormatted}
-                            </span>
-                          </div>
-
-                          {/* Inline payment date selector & quick renewal button */}
-                          {onUpdateSubscription && (
-                            <div className="flex items-center gap-2 flex-wrap pt-1">
-                              <div className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-lg border border-gray-200">
-                                <span className="text-[10px] font-bold text-gray-600">Fecha Pago:</span>
-                                <input
-                                  type="date"
-                                  value={currentDateInput}
-                                  onChange={(e) => setDashboardPaymentDates(prev => ({ ...prev, [p.id]: e.target.value }))}
-                                  className="text-[11px] bg-transparent focus:outline-none"
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => onUpdateSubscription(p.id, 'abono_mensual', 'activa', currentDateInput)}
-                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-[10px] flex items-center gap-1 cursor-pointer transition-colors"
-                              >
-                                <Check className="w-3 h-3" />
-                                <span>Registrar Pago (30d)</span>
-                              </button>
-                              {!details.isExpired && (
-                                <button
-                                  type="button"
-                                  onClick={() => onUpdateSubscription(p.id, 'abono_mensual', 'caducada')}
-                                  className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-800 font-bold rounded-lg text-[10px] cursor-pointer transition-colors"
-                                >
-                                  Cortar Ahora
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
             </div>
 
             {/* Tasa de fidelización comercial */}
@@ -825,63 +534,6 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
               </span>
             </div>
           </div>
-        </div>
-
-        {/* ========================================================================= */}
-        {/* PADRÓN ANTIFRAUDE: TELÉFONOS REGISTRADOS QUE USARON LOS 30 DÍAS GRATIS */}
-        {/* ========================================================================= */}
-        <div className="p-4.5 rounded-2xl bg-gradient-to-br from-[#f8fafc] to-[#f1f5f9] border-2 border-emerald-300 shadow-xs space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-200 pb-2.5">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
-                <ShieldCheck className="w-4 h-4 text-emerald-700" />
-              </div>
-              <div>
-                <h5 className="font-black text-sm text-[#001428] flex items-center gap-1.5">
-                  <span>Padrón Antifraude de Teléfonos Registrados</span>
-                  <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.2 rounded-full">
-                    {trialRecords.length} registrados
-                  </span>
-                </h5>
-                <p className="text-[11px] text-gray-600">
-                  Números de celular vinculados a un período de prueba gratuita. El sistema no les permite volver a registrarse gratis.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setExpandedSection(prev => prev === 'antifraude' ? null : 'antifraude')}
-              className="text-xs font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer self-start sm:self-auto"
-            >
-              {expandedSection === 'antifraude' ? 'Ocultar Padrón ▲' : 'Ver Padrón de Celulares ▼'}
-            </button>
-          </div>
-
-          {expandedSection === 'antifraude' && (
-            <div className="space-y-2 pt-1 animate-in fade-in duration-200">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1">
-                {trialRecords.map((rec) => (
-                  <div key={rec.id} className="p-2.5 bg-white rounded-xl border border-gray-200 text-xs space-y-1 shadow-2xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-[#001428] bg-gray-100 px-1.5 py-0.5 rounded text-[11px]">
-                        📱 {rec.phone}
-                      </span>
-                      <span className="text-[9px] font-black bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded uppercase">
-                        Prueba Usada
-                      </span>
-                    </div>
-                    <p className="font-bold text-[#001428] truncate">{rec.name}</p>
-                    <p className="text-[10px] text-[#9e4300] font-semibold truncate">{rec.trade}</p>
-                    <div className="text-[10px] text-gray-500 pt-1 border-t border-gray-100 flex justify-between">
-                      <span>Alta: {new Date(rec.registeredAt).toLocaleDateString('es-AR')}</span>
-                      <span>Fin: {new Date(rec.trialEndDate).toLocaleDateString('es-AR')}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Botones de acceso rápido para administrar los prestadores según su estado */}
@@ -922,6 +574,152 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
         </div>
       </div>
 
+      {/* SECCIÓN ESPECIAL: REPORTE MENSUAL DE CONTRATACIONES Y SERVICIOS EN PDF */}
+      <div className="bg-gradient-to-br from-[#f8fafc] via-white to-[#eff6ff] p-5 rounded-2xl border-2 border-emerald-300 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-emerald-100 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs">
+              <FileText className="w-5 h-5 text-emerald-100" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-base font-black text-[#001428]">
+                  Reporte de Contrataciones del Último Mes
+                </h4>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300">
+                  Exportable en PDF
+                </span>
+              </div>
+              <p className="text-xs text-[#5a5f67]">
+                Auditoría detallada de todos los servicios pactados, en curso, finalizados y pagos registrados en los últimos 30 días.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => generateAndDownloadMonthlyContractsPdf(requests, professionals)}
+            className="px-4 py-2.5 bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-700 hover:from-emerald-600 hover:to-teal-600 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer transition-all border border-emerald-400/50"
+            title="Generar y descargar informe PDF oficial con estado de cada servicio"
+          >
+            <Printer className="w-4 h-4 text-emerald-200" />
+            <span>Generar y Descargar Reporte PDF</span>
+          </button>
+        </div>
+
+        {/* KPIs del Último Mes */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="p-3 rounded-xl bg-white border border-slate-200 text-center shadow-2xs">
+            <p className="text-[10px] uppercase font-bold text-slate-500">Total Solicitudes</p>
+            <p className="text-xl font-black text-[#001428] mt-0.5">{requests.length}</p>
+            <p className="text-[10px] text-slate-400">En el período</p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-white border border-blue-200 text-center shadow-2xs">
+            <p className="text-[10px] uppercase font-bold text-blue-700">Contratados / En Curso</p>
+            <p className="text-xl font-black text-blue-900 mt-0.5">
+              {requests.filter(r => r.status === 'contratado' || r.status === 'completado').length}
+            </p>
+            <p className="text-[10px] text-blue-600">Con orden emitida</p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-white border border-emerald-200 text-center shadow-2xs">
+            <p className="text-[10px] uppercase font-bold text-emerald-700">Finalizados con Certificación</p>
+            <p className="text-xl font-black text-emerald-900 mt-0.5">
+              {requests.filter(r => r.status === 'completado' || Boolean(r.completedJobPhoto)).length}
+            </p>
+            <p className="text-[10px] text-emerald-600">Fotos de obra auditadas</p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-white border border-amber-200 text-center shadow-2xs">
+            <p className="text-[10px] uppercase font-bold text-[#9e4300]">Monto Total Movilizado</p>
+            <p className="text-lg font-black text-[#9e4300] mt-0.5">
+              ${requests.reduce((acc, curr) => acc + (curr.quoteAmount || 0), 0).toLocaleString('es-AR')}
+            </p>
+            <p className="text-[10px] text-amber-700">ARS acordados</p>
+          </div>
+        </div>
+
+        {/* Resumen de los servicios con su estado */}
+        <div className="space-y-2 pt-1">
+          <div className="flex items-center justify-between text-xs text-[#5a5f67]">
+            <span className="font-bold text-[#001428] flex items-center gap-1.5">
+              <CheckSquare className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Detalle de contrataciones del último mes ({requests.length}):</span>
+            </span>
+            <span className="text-[11px] text-[#74777e]">
+              El archivo PDF incluye la tabla completa y las firmas de desarrollo
+            </span>
+          </div>
+
+          <div className="divide-y divide-gray-100 max-h-60 overflow-y-auto rounded-xl border border-gray-200 bg-white">
+            {requests.length === 0 ? (
+              <div className="p-4 text-center text-xs text-gray-500">
+                No hay contrataciones registradas en el período.
+              </div>
+            ) : (
+              requests.slice(0, 10).map((req) => {
+                const contractNum = req.contractNumber || `ORD-VALLE-2026-${req.id.replace('req-', '').slice(-4)}`;
+                const isPaid = req.paymentStatus === 'confirmado';
+
+                return (
+                  <div key={req.id} className="p-2.5 flex items-center justify-between gap-3 text-xs hover:bg-slate-50 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-bold text-[10px] bg-slate-100 text-slate-800 px-1.5 py-0.2 rounded border border-slate-200">
+                          {contractNum}
+                        </span>
+                        <strong className="text-[#001428] truncate">{req.title}</strong>
+                        <span className="text-[10px] text-[#9e4300] font-semibold bg-orange-50 px-1.5 py-0.2 rounded">
+                          {req.trade}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                        <span>Cliente: <strong>{req.clientName || 'Vecino'}</strong> ({req.neighborhood})</span>
+                        <span>•</span>
+                        <span>Prestador: <strong>{req.quotedBy || 'Asignado'}</strong></span>
+                        {req.quoteAmount && (
+                          <>
+                            <span>•</span>
+                            <span className="font-bold text-gray-900">${req.quoteAmount.toLocaleString('es-AR')}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        req.status === 'completado'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : req.status === 'contratado'
+                          ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                          : req.status === 'cotizado'
+                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                          : 'bg-gray-100 text-gray-700'
+                      }`}>
+                        {req.status === 'completado'
+                          ? 'Finalizado'
+                          : req.status === 'contratado'
+                          ? 'En Curso'
+                          : req.status === 'cotizado'
+                          ? 'Cotizado'
+                          : 'En Espera'}
+                      </span>
+
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        isPaid ? 'bg-teal-100 text-teal-800 border border-teal-300' : 'bg-red-50 text-red-700 border border-red-200'
+                      }`}>
+                        {isPaid ? 'Pagado' : 'Pendiente Pago'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* SECCIÓN 3: DISPOSITIVOS IDENTIFICADOS Y LOGS DE ACCESOS (SIN REGISTRO OBLIGATORIO) */}
       <div className="bg-white p-5 rounded-2xl border border-[#e2e8f0] shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-[#f1f5f9] pb-3">
@@ -943,15 +741,30 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
           </div>
         </div>
 
-        {/* Nota técnica sobre IMEI y Privacidad del Navegador */}
-        <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200/80 text-xs text-amber-950 space-y-1">
-          <div className="flex items-center gap-1.5 font-bold text-amber-900">
-            <HelpCircle className="w-4 h-4 text-amber-700 shrink-0" />
-            <span>Nota Técnica sobre IMEI y Teléfono en Navegadores:</span>
-          </div>
-          <p className="text-[11px] leading-relaxed text-amber-900/90">
-            Por estrictas normas de seguridad internacional W3C en navegadores (Chrome, Safari, Firefox), <strong>el código JavaScript no tiene permiso para leer el IMEI de hardware ni la tarjeta SIM directa</strong>. Para resolver la necesidad de identificar a cada vecino, almacenar sus favoritos y llevar estadísticas exactas, el sistema asigna automáticamente un <strong>Identificador Único Persistente de Dispositivo (UUID)</strong> en el almacenamiento del celular, y permite capturar el número de teléfono cuando el vecino lo asocia o envía una consulta.
-          </p>
+        {/* Cuadro desplegable para Nota técnica sobre IMEI y Privacidad del Navegador (Ahorro de espacio) */}
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={() => setShowImeiNote(!showImeiNote)}
+            className="w-full flex items-center justify-between p-2.5 bg-amber-50/70 hover:bg-amber-100/70 rounded-xl border border-amber-200/80 text-xs text-amber-950 font-bold transition-all cursor-pointer shadow-2xs"
+          >
+            <div className="flex items-center gap-1.5 text-amber-900">
+              <HelpCircle className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>Nota Técnica sobre IMEI y Teléfono en Navegadores</span>
+              <span className="text-[10px] bg-amber-200/80 text-amber-900 px-1.5 py-0.2 rounded font-semibold">
+                {showImeiNote ? 'Ocultar' : 'Ver detalle'}
+              </span>
+            </div>
+            <ChevronDown className={`w-4 h-4 text-amber-800 transition-transform duration-200 ${showImeiNote ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showImeiNote && (
+            <div className="p-3 bg-amber-50/90 rounded-xl border border-amber-200 text-xs text-amber-950 space-y-1 animate-in fade-in duration-150">
+              <p className="text-[11px] leading-relaxed text-amber-900/90">
+                Por estrictas normas de seguridad internacional W3C en navegadores (Chrome, Safari, Firefox), <strong>el código JavaScript no tiene permiso para leer el IMEI de hardware ni la tarjeta SIM directa</strong>. Para resolver la necesidad de identificar a cada vecino, almacenar sus favoritos y llevar estadísticas exactas, el sistema asigna automáticamente un <strong>Identificador Único Persistente de Dispositivo (UUID)</strong> en el almacenamiento del celular, y permite capturar el número de teléfono cuando el vecino lo asocia o envía una consulta.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Métricas de Dispositivos */}
@@ -1162,13 +975,13 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-[#001428] flex items-center gap-2">
-                    <span>Registro de Seguridad de Chats (Resguardo 30 Días)</span>
+                    <span>Registro de Trazabilidad y Seguridad de Chats</span>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200">
                       {chatLogs.length} mensajes guardados
                     </span>
                   </h3>
                   <p className="text-xs text-gray-500">
-                    Historial inmutable de conversaciones entre vecinos y prestadores para prevenir fraudes, malos entendidos o estafas.
+                    Historial inmutable conservado durante <strong>toda la vigencia del trabajo</strong> (desde presupuesto hasta pago y conformidad mutua) y archivado 30 días posteriores al cierre para auditoría pericial.
                   </p>
                 </div>
               </div>
@@ -1177,7 +990,7 @@ Administradores: Jorge Lopez (Dev) y Daniel Dohrman (Dev)
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] font-mono text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1.5 font-bold">
                 <Clock className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Retención legal: 30 Días</span>
+                <span>Retención: Todo el Trabajo + 30 Días Post-Cierre</span>
               </span>
               {chatLogs.length > 0 && (
                 <button
