@@ -45,6 +45,7 @@ import { Professional, ServiceCategory, Neighborhood } from '../types';
 import { APP_LOGO_URL, isWorkerInNeighborhood, isWorkerMatchingSearch } from '../data/mockData';
 import { FeaturedWorkersModal } from './FeaturedWorkersModal';
 import { VoiceSearchModal } from './VoiceSearchModal';
+import { FilterState } from './FilterModal';
 
 interface ExploreScreenProps {
   professionals: Professional[];
@@ -68,6 +69,11 @@ interface ExploreScreenProps {
   loggedInPro?: Professional | null;
   isDevAdmin?: boolean;
   onTriggerAdminUnlock?: () => void;
+  filters?: FilterState;
+  onToggleEmergencyFilter?: () => void;
+  onToggleFreeQuoteFilter?: () => void;
+  onToggleCertifiedFilter?: () => void;
+  onClearAllFilters?: () => void;
 }
 
 // Map category icons to Lucide icons
@@ -133,7 +139,12 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
   loggedInPro,
   isDevAdmin = false,
   onTriggerAdminUnlock,
-  onStartInternalChat
+  onStartInternalChat,
+  filters,
+  onToggleEmergencyFilter,
+  onToggleFreeQuoteFilter,
+  onToggleCertifiedFilter,
+  onClearAllFilters
 }) => {
   const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
   const [isFeaturedModalOpen, setIsFeaturedModalOpen] = useState(false);
@@ -151,32 +162,70 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
   // Resolved category object
   const activeCategory = categories.find(c => c.id === selectedCategory);
 
+  // Active filter flags
+  const isEmergencyActive = Boolean(filters?.onlyEmergencyDuty);
+  const isFreeQuoteActive = Boolean(filters?.onlyFreeQuote);
+  const isCertifiedActive = Boolean(filters?.onlyCertified);
+  const activeQuickFilterCount = (isEmergencyActive ? 1 : 0) + (isFreeQuoteActive ? 1 : 0) + (isCertifiedActive ? 1 : 0);
+
   // Flag indicating whether we are displaying filtered worker results or the service selection section
-  const hasActiveSelection = Boolean(selectedCategory || searchQuery.trim() || showAllWorkersManual || selectedNeighborhood !== 'todos');
+  const hasActiveSelection = Boolean(
+    selectedCategory ||
+    searchQuery.trim() ||
+    showAllWorkersManual ||
+    selectedNeighborhood !== 'todos' ||
+    isEmergencyActive ||
+    isFreeQuoteActive ||
+    isCertifiedActive
+  );
 
   const handleSelectCategory = (catId: string) => {
     onSelectCategory(catId);
     setShowAllWorkersManual(false);
   };
 
-  // Borrar filtros: Resetea el filtro de localidad/departamento, el filtro de categoría/oficio, y la búsqueda de texto
+  // Borrar filtros: Resetea el filtro de localidad/departamento, el filtro de categoría/oficio, la búsqueda de texto y los filtros rápidos
   const handleClearSelection = () => {
     onSelectCategory(null);
     onSelectNeighborhood('todos');
     onSearchChange('');
     setShowAllWorkersManual(false);
+    if (onClearAllFilters) {
+      onClearAllFilters();
+    }
   };
 
   // Base list for department counts: accounts for search term if typed
-  const baseListForCounts = (allProfessionals || professionals).filter(worker => {
-    if (worker.approvalStatus && worker.approvalStatus !== 'aprobado') {
-      return false;
-    }
-    if (searchQuery.trim()) {
-      return isWorkerMatchingSearch(worker, searchQuery);
-    }
-    return true;
-  });
+  const baseListForCounts = useMemo(() => {
+    return (allProfessionals || professionals).filter(worker => {
+      if (worker.approvalStatus && worker.approvalStatus !== 'aprobado') {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        return isWorkerMatchingSearch(worker, searchQuery, categories);
+      }
+      return true;
+    });
+  }, [allProfessionals, professionals, searchQuery, categories]);
+
+  // Base list filtered by department/locality for calculating specific quick filter counts
+  const localityFilteredList = useMemo(() => {
+    if (selectedNeighborhood === 'todos') return baseListForCounts;
+    return baseListForCounts.filter(p => isWorkerInNeighborhood(p.neighborhood, selectedNeighborhood, neighborhoods, p.coverageZones));
+  }, [baseListForCounts, selectedNeighborhood, neighborhoods]);
+
+  // Specific counts for quick filter buttons
+  const emergencyProsCount = useMemo(() => {
+    return localityFilteredList.filter(p => p.emergencyDuty).length;
+  }, [localityFilteredList]);
+
+  const freeQuoteProsCount = useMemo(() => {
+    return localityFilteredList.filter(p => p.quoteWithoutCharge).length;
+  }, [localityFilteredList]);
+
+  const certifiedProsCount = useMemo(() => {
+    return localityFilteredList.filter(p => Boolean(p.matricula)).length;
+  }, [localityFilteredList]);
 
   // 3 profesionales con mejores valoraciones y mayor cantidad de trabajos verificados
   const featuredOfTheMonth = useMemo(() => {
@@ -289,6 +338,26 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
             >
               <Mic className="w-4 h-4" />
             </button>
+
+            {/* Botón de Filtros Generales */}
+            <button
+              type="button"
+              onClick={onOpenFilterModal}
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 border shadow-2xs relative ${
+                activeQuickFilterCount > 0
+                  ? 'bg-[#9e4300] text-white border-[#783100]'
+                  : 'bg-[#eff4ff] text-[#0f2942] hover:bg-[#dce9ff] border-[#d3e4fe]'
+              }`}
+              title="Abrir filtros avanzados y ordenamiento"
+              aria-label="Abrir filtros"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              {activeQuickFilterCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-600 text-white text-[9px] font-black flex items-center justify-center border border-white">
+                  {activeQuickFilterCount}
+                </span>
+              )}
+            </button>
           </div>
         </div>
 
@@ -364,8 +433,106 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
           </div>
         </div>
 
-        {/* Indicadores activos de filtrado y Botón "Borrar filtros" (borra tanto localidad como servicio) */}
-        {(selectedNeighborhood !== 'todos' || selectedCategory || searchQuery.trim()) && (
+        {/* 3. BARRA DE FILTROS RÁPIDOS DIRECTOS: URGENCIAS 24H Y PRESUPUESTO SIN CARGO */}
+        <div className="mt-2.5 pt-2 border-t border-gray-200/70 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-[#001428] flex items-center gap-1">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-[#9e4300]" />
+              <span>Filtros rápidos para vecinos:</span>
+            </span>
+            <button
+              type="button"
+              onClick={onOpenFilterModal}
+              className="text-[11px] font-bold text-[#9e4300] hover:text-[#783100] flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <span>Más filtros y orden</span>
+              {activeQuickFilterCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-[#9e4300] text-white text-[9px] font-black">
+                  {activeQuickFilterCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* 1. BOTÓN FILTRO: URGENCIAS 24 HORAS */}
+            <button
+              type="button"
+              onClick={onToggleEmergencyFilter}
+              className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                isEmergencyActive
+                  ? 'bg-gradient-to-r from-amber-500 via-amber-600 to-[#9e4300] text-white ring-2 ring-amber-400 shadow-sm'
+                  : 'bg-white hover:bg-amber-50 text-amber-950 border border-amber-300'
+              }`}
+              title="Filtrar prestadores con guardia activa y auxilio de urgencias 24hs"
+            >
+              <Zap className={`w-3.5 h-3.5 ${isEmergencyActive ? 'text-white fill-current animate-pulse' : 'text-amber-600'}`} />
+              <span>Urgencias 24hs</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                isEmergencyActive ? 'bg-black/25 text-white' : 'bg-amber-100 text-amber-900'
+              }`}>
+                {emergencyProsCount}
+              </span>
+              {isEmergencyActive && <CheckCircle2 className="w-3.5 h-3.5 text-white ml-0.5" />}
+            </button>
+
+            {/* 2. BOTÓN FILTRO: PRESUPUESTO SIN CARGO */}
+            <button
+              type="button"
+              onClick={onToggleFreeQuoteFilter}
+              className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                isFreeQuoteActive
+                  ? 'bg-gradient-to-r from-emerald-600 to-green-700 text-white ring-2 ring-emerald-400 shadow-sm'
+                  : 'bg-white hover:bg-emerald-50 text-emerald-950 border border-emerald-300'
+              }`}
+              title="Filtrar profesionales que ofrecen presupuesto inicial sin costo"
+            >
+              <CheckCircle2 className={`w-3.5 h-3.5 ${isFreeQuoteActive ? 'text-white' : 'text-emerald-600'}`} />
+              <span>Presupuesto Sin Cargo</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                isFreeQuoteActive ? 'bg-black/25 text-white' : 'bg-emerald-100 text-emerald-900'
+              }`}>
+                {freeQuoteProsCount}
+              </span>
+              {isFreeQuoteActive && <CheckCircle2 className="w-3.5 h-3.5 text-white ml-0.5" />}
+            </button>
+
+            {/* 3. BOTÓN FILTRO: MATRÍCULA VERIFICADA */}
+            <button
+              type="button"
+              onClick={onToggleCertifiedFilter}
+              className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                isCertifiedActive
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white ring-2 ring-blue-400 shadow-sm'
+                  : 'bg-white hover:bg-blue-50 text-blue-950 border border-blue-200'
+              }`}
+              title="Filtrar solo profesionales con matrícula verificada (Gasnor, COPIPA, etc.)"
+            >
+              <ShieldCheck className={`w-3.5 h-3.5 ${isCertifiedActive ? 'text-white' : 'text-blue-600'}`} />
+              <span>Con Matrícula</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                isCertifiedActive ? 'bg-black/25 text-white' : 'bg-blue-100 text-blue-900'
+              }`}>
+                {certifiedProsCount}
+              </span>
+              {isCertifiedActive && <CheckCircle2 className="w-3.5 h-3.5 text-white ml-0.5" />}
+            </button>
+
+            {/* Botón rápido para abrir guardia de auxilio y teléfonos útiles */}
+            <button
+              type="button"
+              onClick={onOpenEmergencyModal}
+              className="py-1.5 px-2.5 rounded-xl text-xs font-semibold bg-red-50 hover:bg-red-100 text-red-800 border border-red-200 transition-all flex items-center gap-1 cursor-pointer"
+              title="Abrir guía de teléfonos de emergencias y comisarías del Valle de Lerma"
+            >
+              <Flame className="w-3.5 h-3.5 text-red-600" />
+              <span>Guardias y Teléfonos</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Indicadores activos de filtrado y Botón "Borrar filtros" */}
+        {(selectedNeighborhood !== 'todos' || selectedCategory || searchQuery.trim() || isEmergencyActive || isFreeQuoteActive || isCertifiedActive) && (
           <div className="flex items-center justify-between pt-2.5 px-0.5 flex-wrap gap-2 animate-in fade-in duration-150">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[11px] font-semibold text-[#43474d]">Filtros activos:</span>
@@ -411,14 +578,56 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
                   </button>
                 </span>
               )}
+              {isEmergencyActive && (
+                <span className="inline-flex items-center gap-1 bg-gradient-to-r from-amber-500 to-[#9e4300] text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-2xs">
+                  <Zap className="w-3 h-3 text-white fill-current animate-pulse" />
+                  <span>Solo Urgencias 24hs</span>
+                  <button
+                    type="button"
+                    onClick={onToggleEmergencyFilter}
+                    className="hover:opacity-80 p-0.5 cursor-pointer"
+                    title="Quitar filtro de urgencias"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {isFreeQuoteActive && (
+                <span className="inline-flex items-center gap-1 bg-emerald-600 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-2xs">
+                  <CheckCircle2 className="w-3 h-3 text-white" />
+                  <span>Solo Presupuesto Sin Cargo</span>
+                  <button
+                    type="button"
+                    onClick={onToggleFreeQuoteFilter}
+                    className="hover:opacity-80 p-0.5 cursor-pointer"
+                    title="Quitar filtro de presupuesto sin cargo"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {isCertifiedActive && (
+                <span className="inline-flex items-center gap-1 bg-blue-600 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-2xs">
+                  <ShieldCheck className="w-3 h-3 text-white" />
+                  <span>Solo Matriculados</span>
+                  <button
+                    type="button"
+                    onClick={onToggleCertifiedFilter}
+                    className="hover:opacity-80 p-0.5 cursor-pointer"
+                    title="Quitar filtro de matriculados"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
             </div>
 
-            {/* Botón Borrar filtros: borra localidad, oficio y búsqueda */}
+            {/* Botón Borrar filtros: borra localidad, oficio, búsqueda y filtros rápidos */}
             <button
               type="button"
               onClick={handleClearSelection}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-orange-100 hover:bg-orange-200 text-[#9e4300] text-xs font-bold transition-all cursor-pointer shadow-2xs border border-[#ffdbcb]"
-              title="Borrar todos los filtros (localidad, oficio y búsqueda)"
+              title="Borrar todos los filtros"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Borrar filtros</span>
@@ -483,7 +692,7 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
             </span>
           </div>
 
-          {(selectedNeighborhood !== 'todos' || selectedCategory || searchQuery.trim()) && (
+          {(selectedNeighborhood !== 'todos' || selectedCategory || searchQuery.trim() || filters?.onlyEmergencyDuty || filters?.onlyFreeQuote || filters?.onlyCertified) && (
             <button
               type="button"
               onClick={handleClearSelection}
@@ -620,6 +829,28 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
                         <span className="text-xs font-semibold text-[#9e4300] mt-0.5">
                           {worker.trade}
                         </span>
+
+                        {/* Distintivos visuales destacados: Urgencias 24h, Presupuesto sin cargo, Matrícula */}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          {worker.emergencyDuty && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-950 text-[10px] font-black border border-amber-300 shadow-2xs">
+                              <Zap className="w-2.5 h-2.5 text-amber-700 fill-amber-500 animate-pulse" />
+                              <span>Urgencias 24h</span>
+                            </span>
+                          )}
+                          {worker.quoteWithoutCharge && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-950 text-[10px] font-extrabold border border-emerald-300 shadow-2xs">
+                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700" />
+                              <span>Presupuesto sin cargo</span>
+                            </span>
+                          )}
+                          {worker.matricula && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-950 text-[10px] font-bold border border-blue-300 shadow-2xs">
+                              <ShieldCheck className="w-2.5 h-2.5 text-blue-700" />
+                              <span>Mat. {worker.matricula}</span>
+                            </span>
+                          )}
+                        </div>
 
                         <div className="flex items-center gap-1.5 mt-1 text-[#43474d] text-xs flex-wrap">
                           <div className="flex items-center gap-0.5 text-[#9e4300] font-bold">

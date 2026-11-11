@@ -1268,6 +1268,22 @@ export default function App() {
             onSelectNeighborhood={handleSelectNeighborhood}
             selectedCategory={selectedCategory}
             onSelectCategory={setSelectedCategory}
+            filters={filters}
+            onToggleEmergencyFilter={() => setFilters(prev => ({ ...prev, onlyEmergencyDuty: !prev.onlyEmergencyDuty }))}
+            onToggleFreeQuoteFilter={() => setFilters(prev => ({ ...prev, onlyFreeQuote: !prev.onlyFreeQuote }))}
+            onToggleCertifiedFilter={() => setFilters(prev => ({ ...prev, onlyCertified: !prev.onlyCertified }))}
+            onClearAllFilters={() => {
+              setSelectedNeighborhood('todos');
+              setSelectedCategory(null);
+              setSearchQuery('');
+              setFilters(prev => ({
+                ...prev,
+                onlyCertified: false,
+                onlyEmergencyDuty: false,
+                onlyFreeQuote: false,
+                selectedNeighborhood: 'todos'
+              }));
+            }}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             onOpenFilterModal={() => setIsFilterModalOpen(true)}
