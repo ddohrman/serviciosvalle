@@ -14,6 +14,7 @@ import { AdvertisementModal } from './components/AdvertisementModal';
 import { AdminAuthModal } from './components/AdminAuthModal';
 import { ReclamosSugerenciasModal } from './components/ReclamosSugerenciasModal';
 import { QuickGuideModal } from './components/QuickGuideModal';
+import { ManualesYGuionesModal } from './components/ManualesYGuionesModal';
 import { RequestNotificationToast } from './components/RequestNotificationToast';
 import { InternalContactModal } from './components/InternalContactModal';
 import { 
@@ -30,10 +31,15 @@ import {
   isWorkerMatchingSearch
 } from './data/mockData';
 import { Professional, ServiceRequest, UserProfile, CompletedJob, ProAccount, AppAdvertisement, AppAnalytics, ServiceCategory, Neighborhood, UsefulPhone } from './types';
-import { CheckCircle2, Cloud, CloudCheck } from 'lucide-react';
+import { CheckCircle2, Cloud, CloudCheck, WifiOff, RefreshCw } from 'lucide-react';
 import { InstallPwaBanner } from './components/InstallPwaBanner';
 import { SystemVersionFooter } from './components/SystemVersionFooter';
 import { logDeviceAccess } from './utils/deviceTracker';
+import { 
+  subscribeToNetworkStatus, 
+  saveOfflineSnapshot, 
+  OFICIOS_LAST_SYNC_KEY 
+} from './utils/offlineStorage';
 import { 
   seedFirestoreIfEmpty, 
   subscribeToAdvertisements, 
@@ -190,6 +196,9 @@ export default function App() {
       return true;
     }
   });
+
+  // Modal de Manuales Ilustrados y Guiones Oficiales para Vecinos, Prestadores y Administradores
+  const [isManualesModalOpen, setIsManualesModalOpen] = useState(false);
 
   // Show advertisement upon opening the app according to today's day of week
   useEffect(() => {
@@ -396,6 +405,53 @@ export default function App() {
       localStorage.removeItem('oficios_logged_in_pro_id');
     }
   }, [loggedInProId]);
+
+  // Estado de Conectividad (Online / Offline) y Resiliencia Local
+  const [isOnline, setIsOnline] = useState<boolean>(() => {
+    return typeof navigator !== 'undefined' ? navigator.onLine : true;
+  });
+  const [lastSyncedAt, setLastSyncedAt] = useState<string>(() => {
+    return localStorage.getItem(OFICIOS_LAST_SYNC_KEY) || new Date().toISOString();
+  });
+
+  useEffect(() => {
+    const unsubscribeNet = subscribeToNetworkStatus((status) => {
+      setIsOnline(status);
+      if (status) {
+        const nowIso = new Date().toISOString();
+        setLastSyncedAt(nowIso);
+        saveOfflineSnapshot(userProfile, requests);
+        showToast('¡Conexión a internet restablecida! Información actualizada.');
+      } else {
+        showToast('Sin conexión a internet. Mostrando historial y perfil guardados en este celular.');
+      }
+    });
+
+    return () => {
+      unsubscribeNet();
+    };
+  }, [userProfile, requests]);
+
+  // Actualizar snapshot offline en cada cambio de usuario o solicitudes
+  useEffect(() => {
+    saveOfflineSnapshot(userProfile, requests);
+    if (isOnline) {
+      setLastSyncedAt(new Date().toISOString());
+    }
+  }, [userProfile, requests, isOnline]);
+
+  const handleRetryConnection = () => {
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    setIsOnline(online);
+    if (online) {
+      const nowIso = new Date().toISOString();
+      setLastSyncedAt(nowIso);
+      saveOfflineSnapshot(userProfile, requests);
+      showToast('¡Conectado! Información sincronizada con éxito.');
+    } else {
+      showToast('Continuás sin conexión a internet. Mostrando copia local guardada.');
+    }
+  };
 
   // Real-time request and quote notifications (Toast with chime & vibration)
   const [incomingNotification, setIncomingNotification] = useState<{
@@ -665,73 +721,96 @@ export default function App() {
 
   // Accept quote and issue official contract
   const handleAcceptQuote = (reqId: string) => {
-    let proName = '';
-    const contractNum = `ORD-VALLE-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-    let updatedReq: ServiceRequest | null = null;
+    const existingReq = requests.find(r => r.id === reqId);
+    const contractNum = existingReq?.contractNumber || `ORD-VALLE-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const proName = existingReq?.quotedBy || '';
+    const matchingPro = professionals.find(p => p.name === existingReq?.quotedBy || p.id === existingReq?.assignedWorkerId);
+    const nowIso = new Date().toISOString();
 
-    setRequests(prev => prev.map(r => {
-      if (r.id === reqId) {
-        proName = r.quotedBy || '';
-        const matchingPro = professionals.find(p => p.name === r.quotedBy);
-        const u: ServiceRequest = { 
-          ...r, 
-          status: 'contratado' as const,
-          contractNumber: contractNum,
-          assignedWorkerId: matchingPro ? matchingPro.id : r.assignedWorkerId,
-          clientName: userProfile.name || 'Vecino del Valle'
-        };
-        updatedReq = u;
-        return u;
-      }
-      return r;
-    }));
-    if (updatedReq) {
-      saveServiceRequestToFirestore(updatedReq).catch(e => console.warn('Firestore accept quote error:', e));
-    }
+    const updatedReq: ServiceRequest = existingReq ? {
+      ...existingReq,
+      status: 'contratado',
+      contractNumber: contractNum,
+      assignedWorkerId: matchingPro ? matchingPro.id : (existingReq.assignedWorkerId || ''),
+      clientName: userProfile.name || existingReq.clientName || 'Vecino del Valle',
+      updatedAt: nowIso
+    } : {
+      id: reqId,
+      title: 'Servicio contratado',
+      trade: 'General',
+      neighborhood: 'Cerrillos',
+      description: '',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      status: 'contratado',
+      contractNumber: contractNum,
+      assignedWorkerId: matchingPro ? matchingPro.id : ''
+    };
+
+    // 1. Propagación inmediata y síncrona en el estado global
+    setRequests(prev => prev.map(r => r.id === reqId ? updatedReq : r));
+
+    // 2. Guardado inmediato en Firestore para evitar desincronización
+    saveServiceRequestToFirestore(updatedReq).catch(e => console.warn('Firestore accept quote error:', e));
+
     showToast(`¡Presupuesto aceptado y contrato #${contractNum} emitido! ${proName ? proName.split(' ')[0] : 'El profesional'} ya está habilitado para certificar la obra.`);
   };
 
   // Handle upload of certified photo for a contracted request
   const handleUploadJobPhotoForRequest = (reqId: string, photoUrl: string, comment?: string) => {
-    let targetWorkerId = '';
-    let completedJobData: CompletedJob | null = null;
+    const existingReq = requests.find(r => r.id === reqId);
+    const nowIso = new Date().toISOString();
+    const matchingPro = professionals.find(p => p.id === existingReq?.assignedWorkerId || p.name === existingReq?.quotedBy);
+    const targetWorkerId = matchingPro?.id || existingReq?.assignedWorkerId || (loggedInPro ? loggedInPro.id : '');
+    const contractNumber = existingReq?.contractNumber || `ORD-VALLE-2026-${reqId.replace('req-', '')}`;
 
-    setRequests(prev => prev.map(r => {
-      if (r.id === reqId) {
-        const matchingPro = professionals.find(p => p.id === r.assignedWorkerId || p.name === r.quotedBy);
-        targetWorkerId = matchingPro?.id || r.assignedWorkerId || '';
-        const contractNumber = r.contractNumber || `ORD-VALLE-2026-${r.id.replace('req-', '')}`;
-        
-        completedJobData = {
-          id: `job-${Date.now()}`,
-          serviceRequestId: r.id,
-          contractNumber: contractNumber,
-          clientName: r.clientName || 'Vecino del Valle',
-          title: r.title,
-          imageUrl: photoUrl,
-          neighborhood: r.neighborhood,
-          date: 'Hoy',
-          comment: comment,
-          verifiedByApp: true
-        };
+    const updatedReq: ServiceRequest = existingReq ? {
+      ...existingReq,
+      status: 'completado',
+      completedJobPhoto: photoUrl,
+      completedJobComment: comment,
+      updatedAt: nowIso
+    } : {
+      id: reqId,
+      title: 'Obra certificada',
+      trade: 'General',
+      neighborhood: 'Cerrillos',
+      description: '',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      status: 'completado',
+      completedJobPhoto: photoUrl,
+      completedJobComment: comment,
+      contractNumber,
+      assignedWorkerId: targetWorkerId
+    };
 
-        return {
-          ...r,
-          status: 'completado',
-          completedJobPhoto: photoUrl,
-          completedJobComment: comment
-        };
-      }
-      return r;
-    }));
+    // 1. Propagación inmediata y síncrona en el estado global de requests
+    setRequests(prev => prev.map(r => r.id === reqId ? updatedReq : r));
 
-    if (targetWorkerId && completedJobData) {
-      const jobToAdd = completedJobData;
+    // 2. Guardado inmediato en Firestore para persistencia instantánea
+    saveServiceRequestToFirestore(updatedReq).catch(e => console.warn('Firestore upload photo error:', e));
+
+    // 3. Actualizar perfil del profesional con el trabajo completado
+    const completedJobData: CompletedJob = {
+      id: `job-${Date.now()}`,
+      serviceRequestId: reqId,
+      contractNumber,
+      clientName: updatedReq.clientName || 'Vecino del Valle',
+      title: updatedReq.title,
+      imageUrl: photoUrl,
+      neighborhood: updatedReq.neighborhood,
+      date: 'Hoy',
+      comment: comment,
+      verifiedByApp: true
+    };
+
+    if (targetWorkerId) {
       setProfessionals(prev => prev.map(p => {
         if (p.id === targetWorkerId) {
           return {
             ...p,
-            completedJobs: [jobToAdd, ...p.completedJobs]
+            completedJobs: [completedJobData, ...p.completedJobs]
           };
         }
         return p;
@@ -741,14 +820,14 @@ export default function App() {
         if (prev && prev.id === targetWorkerId) {
           return {
             ...prev,
-            completedJobs: [jobToAdd, ...prev.completedJobs]
+            completedJobs: [completedJobData, ...prev.completedJobs]
           };
         }
         return prev;
       });
     }
 
-    showToast('¡Foto de obra certificada subida con éxito y visible en el perfil del profesional!');
+    showToast('¡Foto de obra certificada subida con éxito y guardada de inmediato!');
   };
 
   // Simulate an official contract for testing the anti-fraud verified upload flow
@@ -1214,6 +1293,35 @@ export default function App() {
     return professionals.filter(p => favorites.includes(p.id));
   }, [professionals, favorites]);
 
+  // Conteo exacto de solicitudes relevantes para el prestador conectado o vecino
+  const proRequestsBadgeCount = useMemo(() => {
+    if (!loggedInPro) {
+      return requests.filter(r => r.status === 'cotizado').length;
+    }
+    const isTradeRelevant = (reqTrade: string, proTrade: string) => {
+      const r = (reqTrade || '').toLowerCase();
+      const p = (proTrade || '').toLowerCase();
+      return r.includes(p) || p.includes(r) || p.split(' ').some(w => w.length > 3 && r.includes(w));
+    };
+
+    return requests.filter(req => {
+      // 1. Solicitudes cuyo assignedWorkerId coincida exactamente con el loggedInPro.id
+      if (req.assignedWorkerId === loggedInPro.id) {
+        return true;
+      }
+      // 2. Solicitudes abiertas donde el profesional aún no ha enviado presupuesto
+      if (
+        req.status === 'en_espera' &&
+        !req.assignedWorkerId &&
+        (!req.quotedBy || req.quotedBy.toLowerCase() !== loggedInPro.name.toLowerCase()) &&
+        isTradeRelevant(req.trade, loggedInPro.trade)
+      ) {
+        return true;
+      }
+      return false;
+    }).length;
+  }, [loggedInPro, requests]);
+
   return (
     <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30] flex flex-col antialiased overflow-x-hidden w-full max-w-full">
       {/* Toast Notification */}
@@ -1258,6 +1366,26 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 w-full max-w-full overflow-x-hidden pt-19 sm:pt-22">
+        {/* Barra Global de Notificación de Modo Sin Conexión */}
+        {!isOnline && (
+          <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-amber-800 text-white px-4 py-2 text-xs font-bold shadow-md flex items-center justify-between gap-3 animate-in fade-in sticky top-14 z-40">
+            <div className="flex items-center gap-2 min-w-0">
+              <WifiOff className="w-4 h-4 text-amber-200 shrink-0 animate-pulse" />
+              <p className="truncate text-xs">
+                <strong>Sin conexión:</strong> Mostrando perfil e historial guardados en este celular (información desactualizada).
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRetryConnection}
+              className="px-2.5 py-1 bg-white/20 hover:bg-white/30 active:scale-95 text-white text-[10px] font-black rounded-lg transition-all cursor-pointer shrink-0 flex items-center gap-1 shadow-2xs"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Reintentar</span>
+            </button>
+          </div>
+        )}
+
         {currentTab === 'explorar' && (
           <ExploreScreen
             professionals={filteredProfessionals}
@@ -1316,6 +1444,8 @@ export default function App() {
             onConfirmPayment={handleConfirmPayment}
             onNavigateToSerPro={() => setCurrentTab('ser-profesional')}
             onOpenReport={handleOpenReclamos}
+            isOnline={isOnline}
+            lastSyncedAt={lastSyncedAt}
           />
         )}
 
@@ -1357,12 +1487,17 @@ export default function App() {
             usefulPhones={usefulPhones}
             onSaveUsefulPhones={handleSaveUsefulPhones}
             requests={requests}
+            onOpenManualesModal={() => setIsManualesModalOpen(true)}
           />
         )}
 
         {currentTab === 'mi-cuenta' && (
           <MiCuentaScreen
             userProfile={userProfile}
+            requests={requests}
+            isOnline={isOnline}
+            lastSyncedAt={lastSyncedAt}
+            onRetryConnection={handleRetryConnection}
             onUpdateProfile={(updated) => {
               setUserProfile(prev => ({ ...prev, ...updated }));
               showToast('¡Datos de tu perfil guardados con éxito!');
@@ -1390,6 +1525,7 @@ export default function App() {
         <SystemVersionFooter
           onOpenAdminAuth={() => setIsAdminAuthModalOpen(true)}
           isDevAdmin={isDevAdmin}
+          onOpenManualesModal={() => setIsManualesModalOpen(true)}
         />
       </main>
 
@@ -1502,11 +1638,7 @@ export default function App() {
             setCurrentTab(tab as any);
           }
         }}
-        requestsCount={
-          loggedInPro
-            ? requests.filter(r => r.status === 'en_espera').length
-            : requests.filter(r => r.status === 'cotizado').length
-        }
+        requestsCount={proRequestsBadgeCount}
         isProLoggedIn={Boolean(loggedInPro)}
         pendingApprovalsCount={pendingApprovalsCount}
         isDevAdmin={isDevAdmin}
@@ -1535,6 +1667,12 @@ export default function App() {
       <QuickGuideModal
         isOpen={isQuickGuideOpen}
         onClose={() => setIsQuickGuideOpen(false)}
+      />
+
+      {/* Guiones y Manuales Ilustrados Oficiales para Vecinos, Prestadores y Administradores */}
+      <ManualesYGuionesModal
+        isOpen={isManualesModalOpen}
+        onClose={() => setIsManualesModalOpen(false)}
       />
 
       {/* Cartel de Instalación Móvil (PWA) */}

@@ -104,6 +104,7 @@ interface SerProScreenProps {
   isDevAdmin?: boolean;
   onTriggerAdminUnlock?: () => void;
   onLockAdmin?: () => void;
+  onOpenManualesModal?: () => void;
 }
 
 export const SerProScreen: React.FC<SerProScreenProps> = ({
@@ -139,7 +140,8 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
   onShowExpiredModal,
   isDevAdmin = false,
   onTriggerAdminUnlock,
-  onLockAdmin
+  onLockAdmin,
+  onOpenManualesModal
 }) => {
   // Navigation between registration, login, profile, and approval panel
   const [activeView, setActiveView] = useState<'registro' | 'login' | 'panel-aprobacion'>(initialView || 'registro');
@@ -927,41 +929,43 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
   return (
     <div className="flex flex-col w-full max-w-2xl mx-auto px-4 pt-2 pb-24 space-y-4">
       {/* ========================================================================= */}
-      {/* 1. DUAL-ROLE CLARITY BANNER (Clients vs Providers)                       */}
+      {/* 1. DUAL-ROLE CLARITY BANNER (Visible solo antes de iniciar sesión)        */}
       {/* ========================================================================= */}
-      <div className="bg-gradient-to-br from-[#eff4ff] to-[#f8f9ff] p-4 rounded-2xl border border-[#c3d7f8] shadow-2xs">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#0f2942] text-white flex items-center justify-center shrink-0 shadow-xs">
-            <Sparkles className="w-5 h-5 text-[#ffdbcb]" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-[#001428] flex items-center gap-1.5">
-              <span>¿Cómo funciona Oficios y Servicios Valle de Lerma?</span>
-            </h2>
-            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-              <div className="p-2.5 rounded-xl bg-white border border-[#d8e2ee]">
-                <div className="flex items-center gap-1.5 font-bold text-emerald-800">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Vecinos que Contratan</span>
+      {!loggedInPro && (
+        <div className="bg-gradient-to-br from-[#eff4ff] to-[#f8f9ff] p-4 rounded-2xl border border-[#c3d7f8] shadow-2xs">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#0f2942] text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Sparkles className="w-5 h-5 text-[#ffdbcb]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-[#001428] flex items-center gap-1.5">
+                <span>¿Cómo funciona Oficios y Servicios Valle de Lerma?</span>
+              </h2>
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div className="p-2.5 rounded-xl bg-white border border-[#d8e2ee]">
+                  <div className="flex items-center gap-1.5 font-bold text-emerald-800">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Vecinos que Contratan</span>
+                  </div>
+                  <p className="text-[11px] text-[#43474d] mt-1 leading-snug">
+                    Acceso <strong>100% libre, gratuito y sin registrarse</strong> por tiempo indeterminado. Buscá en Explorar y contactá directo por WhatsApp.
+                  </p>
                 </div>
-                <p className="text-[11px] text-[#43474d] mt-1 leading-snug">
-                  Acceso <strong>100% libre, gratuito y sin registrarse</strong> por tiempo indeterminado. Buscá en Explorar y contactá directo por WhatsApp.
-                </p>
-              </div>
 
-              <div className="p-2.5 rounded-xl bg-[#fff2ea] border border-[#ffd5c2]">
-                <div className="flex items-center gap-1.5 font-bold text-[#9e4300]">
-                  <Wrench className="w-4 h-4 text-[#9e4300] shrink-0" />
-                  <span>Trabajadores y Profesionales</span>
+                <div className="p-2.5 rounded-xl bg-[#fff2ea] border border-[#ffd5c2]">
+                  <div className="flex items-center gap-1.5 font-bold text-[#9e4300]">
+                    <Wrench className="w-4 h-4 text-[#9e4300] shrink-0" />
+                    <span>Trabajadores y Profesionales</span>
+                  </div>
+                  <p className="text-[11px] text-[#5e2700] mt-1 leading-snug">
+                    Registrate con <strong>usuario y contraseña</strong> y disfrutá de <strong>30 días de prueba gratuita</strong> para recibir clientes del Valle.
+                  </p>
                 </div>
-                <p className="text-[11px] text-[#5e2700] mt-1 leading-snug">
-                  Registrate con <strong>usuario y contraseña</strong> y disfrutá de <strong>30 días de prueba gratuita</strong> para recibir clientes del Valle.
-                </p>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 2. IF PROVIDER IS LOGGED IN: SHOW DEDICATED PRO DASHBOARD & TRIAL STATUS  */}
@@ -1120,10 +1124,15 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
 
               {/* Status Badge */}
               <div>
-                {loggedInPro.approvalStatus === 'pendiente' ? (
+                {!loggedInPro.dniPhotoUrl ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-950 border border-amber-300">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
+                    <span>DNI Pendiente de Carga</span>
+                  </span>
+                ) : loggedInPro.approvalStatus === 'pendiente' ? (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-950 border border-amber-300">
                     <Clock className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Pendiente de Aprobación por Administración</span>
+                    <span>DNI en Revisión por Administración</span>
                   </span>
                 ) : loggedInPro.approvalStatus === 'rechazado' ? (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-900 border border-red-300">
@@ -3244,6 +3253,7 @@ export const SerProScreen: React.FC<SerProScreenProps> = ({
                   onSwitchToPrestadores={() => setAdminSubSection('prestadores')}
                   onOpenApkModal={() => setIsApkModalOpen(true)}
                   onOpenDockerModal={() => setIsDockerModalOpen(true)}
+                  onOpenManualesModal={onOpenManualesModal}
                 />
               )}
 

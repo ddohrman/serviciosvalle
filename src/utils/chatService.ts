@@ -147,7 +147,10 @@ export async function sendChatMessage(data: {
 
   try {
     const docRef = doc(db, CHAT_COLLECTION, msgId);
-    await setDoc(docRef, newMessage);
+    // Enviar a Firestore de forma asíncrona sin bloquear la respuesta de la UI
+    setDoc(docRef, newMessage).catch((err) => {
+      console.warn('Notice saving message to Firestore (stored locally):', err);
+    });
   } catch (err) {
     console.warn('Notice saving message to Firestore (stored locally):', err);
   }

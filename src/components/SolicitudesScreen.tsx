@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ClipboardList, 
   Plus, 
@@ -19,7 +19,9 @@ import {
   ArrowRight, 
   Sparkles, 
   AlertCircle,
-  Phone
+  AlertTriangle,
+  Phone,
+  WifiOff
 } from 'lucide-react';
 import { ServiceRequest, ServiceCategory, Neighborhood, Professional, UserProfile } from '../types';
 import { RequestChatModal } from './RequestChatModal';
@@ -40,7 +42,47 @@ interface SolicitudesScreenProps {
   onConfirmPayment?: (reqId: string, method?: 'efectivo' | 'transferencia' | 'mercado_pago') => void;
   onNavigateToSerPro?: () => void;
   onOpenReport?: (req?: ServiceRequest | null) => void;
+  isOnline?: boolean;
+  lastSyncedAt?: string;
 }
+
+// Helper to calculate days elapsed since last status change or request creation
+export const calculateDaysWithoutUpdate = (req: ServiceRequest): number => {
+  const targetDateStr = req.updatedAt || req.createdAt;
+  if (!targetDateStr) return 0;
+
+  // Try ISO parse
+  const timestamp = Date.parse(targetDateStr);
+  if (!isNaN(timestamp)) {
+    const diff = Date.now() - timestamp;
+    return diff > 0 ? Math.floor(diff / (1000 * 60 * 60 * 24)) : 0;
+  }
+
+  // Parse relative strings in mock data
+  const lower = targetDateStr.toLowerCase();
+  if (lower.includes('meses')) {
+    const match = lower.match(/hace\s+(\d+)\s+meses/);
+    return match ? parseInt(match[1], 10) * 30 : 60;
+  }
+  if (lower.includes('mes')) {
+    return 30;
+  }
+  if (lower.includes('semanas')) {
+    const match = lower.match(/hace\s+(\d+)\s+semanas/);
+    return match ? parseInt(match[1], 10) * 7 : 14;
+  }
+  if (lower.includes('semana')) {
+    return 7;
+  }
+  if (lower.includes('días') || lower.includes('dias')) {
+    const match = lower.match(/hace\s+(\d+)\s+d[íi]as/);
+    return match ? parseInt(match[1], 10) : 3;
+  }
+  if (lower.includes('ayer')) {
+    return 1;
+  }
+  return 0;
+};
 
 export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
   requests,
@@ -56,7 +98,9 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
   onContactClientWhatsApp,
   onConfirmPayment,
   onNavigateToSerPro,
-  onOpenReport
+  onOpenReport,
+  isOnline = true,
+  lastSyncedAt
 }) => {
   // Mode selection: 'prestador' (Bandeja de pedidos) or 'vecino' (Mis solicitudes como cliente)
   const [activeMode, setActiveMode] = useState<'prestador' | 'vecino'>(() => {
@@ -73,7 +117,7 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
   }, [loggedInPro]);
 
   // Provider filter sub-tabs
-  const [proFilter, setProFilter] = useState<'todos' | 'nuevos' | 'cotizados' | 'contratados'>('nuevos');
+  const [proFilter, setProFilter] = useState<'todos' | 'nuevos' | 'cotizados' | 'contratados' | 'atencion'>('nuevos');
 
   // Modal to send quote from provider
   const [quotingRequest, setQuotingRequest] = useState<ServiceRequest | null>(null);
@@ -112,11 +156,66 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
   const [urgency, setUrgency] = useState<'normal' | 'urgente' | 'semana'>('normal');
   const [neighborFilter, setNeighborFilter] = useState<'todos' | 'en_espera' | 'cotizado' | 'contratado' | 'completado'>('todos');
 
-  // Photo upload for completed jobs
+  // Photo upload for completed jobs and progress
   const [uploadingForReq, setUploadingForReq] = useState<ServiceRequest | null>(null);
   const [photoUrlInput, setPhotoUrlInput] = useState('');
   const [photoCommentInput, setPhotoCommentInput] = useState('');
   const [isProcessingUpload, setIsProcessingUpload] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isLiveCameraActive, setIsLiveCameraActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const startLiveCamera = async () => {
+    setCameraError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+      setIsLiveCameraActive(true);
+    } catch (err) {
+      console.warn('Error al iniciar cámara en vivo:', err);
+      setCameraError('No se pudo activar la cámara web directa. Podés usar el botón para abrir la cámara de tu celular.');
+    }
+  };
+
+  const captureLivePhoto = () => {
+    if (videoRef.current) {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setPhotoUrlInput(dataUrl);
+        stopLiveCamera();
+      }
+    }
+  };
+
+  const stopLiveCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setIsLiveCameraActive(false);
+  };
+
+  const handleClosePhotoModal = () => {
+    stopLiveCamera();
+    setUploadingForReq(null);
+    setPhotoUrlInput('');
+    setPhotoCommentInput('');
+    setCameraError(null);
+  };
 
   // Submit quote from provider
   const handleSendQuoteSubmit = (e: React.FormEvent) => {
@@ -155,10 +254,22 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
     setIsCreating(false);
   };
 
-  // Upload photo file
+  // Upload photo file (STRICT REAL-TIME CAMERA ONLY - BLOCKS GALLERY FILES)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setCameraError(null);
+      // Validar que la foto no provenga de una galería antigua
+      const now = Date.now();
+      const fileTime = file.lastModified;
+      const diffMinutes = Math.abs(now - fileTime) / (1000 * 60);
+
+      if (fileTime && diffMinutes > 20) {
+        setCameraError('⚠️ Carga bloqueada: La foto seleccionada fue tomada hace más de 20 minutos o proviene de la galería. Por normas de certificación y seguridad, debés sacar la foto en vivo en el lugar de la obra.');
+        e.target.value = '';
+        return;
+      }
+
       setIsProcessingUpload(true);
       const reader = new FileReader();
       reader.onload = (uploadEvent) => {
@@ -224,10 +335,19 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
         if (proFilter === 'contratados') {
           return (req.status === 'contratado' || req.status === 'completado') && isJobRequestedToMe(req);
         }
+        if (proFilter === 'atencion') {
+          return (isJobRequestedToMe(req) || isGeneralJobForMyTrade(req)) && 
+                 req.status !== 'completado' && 
+                 calculateDaysWithoutUpdate(req) >= 7;
+        }
         // 'todos': únicamente trabajos solicitados a este trabajador o de su rubro directo
         return isJobRequestedToMe(req) || isGeneralJobForMyTrade(req);
       })
     : [];
+
+  const proAttentionCount = proRelevantRequests.filter(
+    r => r.status !== 'completado' && calculateDaysWithoutUpdate(r) >= 7
+  ).length;
 
   // Neighbor calculations
   const pendingCount = requests.filter(r => r.status === 'en_espera').length;
@@ -243,36 +363,25 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
 
   return (
     <div className="flex flex-col w-full max-w-xl mx-auto px-4 pt-2 pb-24">
-      {/* 1. DUAL-VIEW TOGGLE SWITCHER (Visible when a provider is logged in) */}
-      {loggedInPro && (
-        <div className="mb-3 bg-white p-1.5 rounded-2xl border border-[#d3e4fe] shadow-2xs">
-          <div className="grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={() => setActiveMode('prestador')}
-              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeMode === 'prestador'
-                  ? 'bg-[#001428] text-white shadow-xs'
-                  : 'bg-transparent text-[#43474d] hover:bg-[#eff4ff]'
-              }`}
-            >
-              <Briefcase className="w-4 h-4 text-[#ffb68f]" />
-              <span className="truncate">Bandeja de Trabajos ({proRelevantRequests.length})</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveMode('vecino')}
-              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeMode === 'vecino'
-                  ? 'bg-[#001428] text-white shadow-xs'
-                  : 'bg-transparent text-[#43474d] hover:bg-[#eff4ff]'
-              }`}
-            >
-              <ClipboardList className="w-4 h-4 text-[#a3f69c]" />
-              <span className="truncate">Mis Pedidos ({requests.length})</span>
-            </button>
+      {/* Banner de Modo Sin Conexión para Solicitudes */}
+      {!isOnline && (
+        <div className="mb-3 p-3 rounded-2xl bg-amber-50 border-2 border-amber-400 text-amber-950 flex items-center justify-between gap-2.5 shadow-2xs animate-in fade-in">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
+              <WifiOff className="w-4 h-4 animate-pulse" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-black text-amber-950 truncate">
+                Modo Sin Conexión • Información Desactualizada
+              </p>
+              <p className="text-[11px] text-amber-900 truncate">
+                Mostrando pedidos guardados localmente. Los presupuestos y chats se actualizarán al volver a tener internet.
+              </p>
+            </div>
           </div>
+          <span className="text-[10px] font-black bg-amber-200 text-amber-900 px-2 py-0.5 rounded shrink-0">
+            Copia Local
+          </span>
         </div>
       )}
 
@@ -312,6 +421,7 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
               { id: 'nuevos', label: 'Nuevos pedidos', count: requests.filter(r => r.status === 'en_espera' && (isJobRequestedToMe(r) || isGeneralJobForMyTrade(r))).length },
               { id: 'cotizados', label: 'Mis cotizaciones', count: requests.filter(r => r.status === 'cotizado' && (isJobRequestedToMe(r) || r.quotedBy === loggedInPro.name)).length },
               { id: 'contratados', label: 'Asignados', count: requests.filter(r => (r.status === 'contratado' || r.status === 'completado') && isJobRequestedToMe(r)).length },
+              { id: 'atencion', label: 'Atención Necesaria', count: proAttentionCount, isAttention: true },
               { id: 'todos', label: 'Todos', count: proRelevantRequests.length }
             ].map((tab) => (
               <button
@@ -320,19 +430,53 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                 onClick={() => setProFilter(tab.id as any)}
                 className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 text-xs ${
                   proFilter === tab.id
-                    ? 'bg-[#9e4300] text-white shadow-2xs'
+                    ? tab.isAttention
+                      ? 'bg-amber-600 text-white shadow-2xs font-black'
+                      : 'bg-[#9e4300] text-white shadow-2xs'
+                    : tab.isAttention && tab.count > 0
+                    ? 'bg-amber-50 text-amber-900 border-2 border-amber-300 hover:bg-amber-100 font-bold'
                     : 'bg-white text-[#43474d] border border-[#e2e8f0] hover:bg-[#f8f9ff]'
                 }`}
               >
+                {tab.isAttention && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                 <span>{tab.label}</span>
                 <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-                  proFilter === tab.id ? 'bg-white/25 text-white' : 'bg-gray-100 text-[#001428]'
+                  proFilter === tab.id 
+                    ? 'bg-white/25 text-white' 
+                    : tab.isAttention && tab.count > 0
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-gray-100 text-[#001428]'
                 }`}>
                   {tab.count}
                 </span>
               </button>
             ))}
           </div>
+
+          {/* Banner de alerta de solicitudes que requieren atención urgente (+7 días) */}
+          {proAttentionCount > 0 && proFilter !== 'atencion' && (
+            <div 
+              onClick={() => setProFilter('atencion')}
+              className="p-3 rounded-xl bg-gradient-to-r from-amber-50 via-amber-100/70 to-amber-50 border-2 border-amber-400/90 flex items-center justify-between gap-2.5 cursor-pointer hover:bg-amber-100 transition-all shadow-xs"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
+                  <AlertTriangle className="w-4 h-4 text-white animate-pulse" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-black text-amber-950 truncate">
+                    {proAttentionCount} {proAttentionCount === 1 ? 'servicio requiere atención' : 'servicios requieren atención'} (+7 días sin cambios)
+                  </p>
+                  <p className="text-[11px] text-amber-900 truncate">
+                    Identificá prioridades de respuesta y obras demoradas
+                  </p>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded-lg shrink-0 shadow-xs">
+                Ver Prioridades
+              </span>
+            </div>
+          )}
 
           {/* Job List for the Provider */}
           <div className="space-y-3">
@@ -345,6 +489,8 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                 <p className="text-xs text-[#74777e] max-w-xs mx-auto">
                   {proFilter === 'nuevos' 
                     ? 'No hay solicitudes pendientes de cotización en este momento.'
+                    : proFilter === 'atencion'
+                    ? '¡Excelente! No tenés solicitudes pendientes con más de 7 días sin actualización.'
                     : 'Seleccioná la pestaña "Todos" o "Nuevos pedidos" para ver solicitudes en el Valle de Lerma.'}
                 </p>
                 <button
@@ -361,18 +507,42 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                 const isContractedToMe = (req.status === 'contratado' || req.status === 'completado') && 
                                          (req.assignedWorkerId === loggedInPro.id || req.quotedBy === loggedInPro.name);
                 const isPending = req.status === 'en_espera';
+                const daysWithoutUpdate = calculateDaysWithoutUpdate(req);
+                const needsAttention = daysWithoutUpdate >= 7 && req.status !== 'completado';
 
                 return (
                   <article
                     key={req.id}
                     className={`bg-white rounded-2xl p-4 border transition-all space-y-3 ${
-                      isContractedToMe
+                      needsAttention
+                        ? 'border-amber-400 ring-2 ring-amber-300 shadow-md bg-amber-50/15'
+                        : isContractedToMe
                         ? 'border-emerald-300 ring-2 ring-emerald-100 shadow-xs'
                         : isQuotedByMe
                         ? 'border-blue-300 shadow-2xs'
                         : 'border-[#e2e8f0] shadow-2xs'
                     }`}
                   >
+                    {/* Indicador visual de Atención Necesaria (+7 días sin actualización) */}
+                    {needsAttention && (
+                      <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-xs animate-in fade-in duration-150">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <AlertTriangle className="w-4 h-4 text-white shrink-0 animate-bounce" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-black tracking-wide flex items-center gap-1.5 flex-wrap">
+                              <span>ATENCIÓN NECESARIA</span>
+                              <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-full">
+                                {daysWithoutUpdate} días sin cambio de estado
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] uppercase font-black tracking-wider bg-black/25 px-2 py-0.5 rounded-md shrink-0">
+                          Prioritario
+                        </span>
+                      </div>
+                    )}
+
                     {/* Header of Job Request */}
                     <div className="flex items-start justify-between gap-2">
                       <div>
@@ -422,6 +592,30 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                       <p>{req.description}</p>
                     </div>
 
+                    {/* Recomendación de acción inmediata para el profesional si requiere atención */}
+                    {needsAttention && (
+                      <div className="p-2.5 rounded-xl bg-amber-50/90 border border-amber-300 text-xs text-amber-950 flex items-start gap-2 shadow-2xs">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="text-[11px] leading-relaxed">
+                          {req.status === 'en_espera' && (
+                            <p>
+                              <strong>Solicitud prioritaria sin cotizar:</strong> Lleva {daysWithoutUpdate} días esperando presupuesto. Presupuestá hoy para ser el profesional preferido del vecino.
+                            </p>
+                          )}
+                          {req.status === 'cotizado' && (
+                            <p>
+                              <strong>Presupuesto sin respuesta:</strong> Hace {daysWithoutUpdate} días enviaste tu cotización. Podés abrir el chat seguro para consultar dudas al cliente y reactivar el trabajo.
+                            </p>
+                          )}
+                          {req.status === 'contratado' && (
+                            <p>
+                              <strong>Obra en curso demorada:</strong> Lleva {daysWithoutUpdate} días sin registrar avance. Subí una foto certificada de progreso con la cámara para actualizar el estado.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Quote Info Box if quoted by me */}
                     {isQuotedByMe && (
                       <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-between text-xs">
@@ -454,7 +648,45 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                           </span>
                         </div>
 
-                        {req.completedJobPhoto ? (
+                        {/* Alerta de inactividad de más de 15 días en obras asignadas */}
+                        {(() => {
+                          const contractDate = req.updatedAt || req.createdAt;
+                          const daysWithoutMovement = contractDate 
+                            ? Math.floor((Date.now() - new Date(contractDate).getTime()) / (1000 * 60 * 60 * 24))
+                            : 0;
+                          const isInactiveOver15Days = daysWithoutMovement >= 15 && req.status === 'contratado';
+
+                          if (isInactiveOver15Days) {
+                            return (
+                              <div className="mt-1 p-3 rounded-xl bg-amber-50 border-2 border-amber-400 text-amber-950 space-y-2 shadow-2xs">
+                                <div className="flex items-center gap-1.5 font-black text-xs text-amber-900">
+                                  <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+                                  <span>⚠️ Obra sin movimiento ({daysWithoutMovement} días sin nuevo reporte)</span>
+                                </div>
+                                <p className="text-[11px] text-amber-900 leading-snug">
+                                  Esta obra asignada supera los 15 días en curso. Para garantizar la trazabilidad al cliente y administración, <strong>el sistema exige tomar y subir una foto de avance real con la cámara</strong>.
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setUploadingForReq(req);
+                                    setPhotoUrlInput('');
+                                    setPhotoCommentInput('');
+                                    setCameraError(null);
+                                  }}
+                                  className="w-full py-2 px-3 rounded-lg bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                                >
+                                  <Camera className="w-3.5 h-3.5 text-white" />
+                                  <span>Tomar Foto de Avance con Cámara Ahora (Requerido)</span>
+                                </button>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+
+                        {/* Foto previa si ya existe */}
+                        {req.completedJobPhoto && (
                           <div className="pt-1">
                             <div className="flex items-center justify-between text-[11px] font-bold text-emerald-900 mb-1">
                               <span className="flex items-center gap-1">
@@ -482,21 +714,32 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                                 🔍 Ver en pantalla completa
                               </div>
                             </div>
+                            {req.completedJobComment && (
+                              <p className="text-xs text-[#43474d] italic bg-white/80 p-2 rounded-lg mt-1 border border-emerald-100">
+                                "{req.completedJobComment}"
+                              </p>
+                            )}
                           </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setUploadingForReq(req);
-                              setPhotoUrlInput('');
-                              setPhotoCommentInput('');
-                            }}
-                            className="w-full py-2 bg-[#001428] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 hover:bg-[#0f2942] cursor-pointer shadow-xs"
-                          >
-                            <Camera className="w-4 h-4 text-[#ffdbcb]" />
-                            <span>Subir Foto Certificada (Suma reputación en tu perfil)</span>
-                          </button>
                         )}
+
+                        {/* Botón disponible para TODOS los pedidos asignados */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUploadingForReq(req);
+                            setPhotoUrlInput('');
+                            setPhotoCommentInput('');
+                            setCameraError(null);
+                          }}
+                          className="w-full py-2 bg-[#001428] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 hover:bg-[#0f2942] cursor-pointer shadow-xs active:scale-98 transition-all"
+                        >
+                          <Camera className="w-4 h-4 text-[#ffdbcb]" />
+                          <span>
+                            {req.completedJobPhoto 
+                              ? '📸 Actualizar / Tomar Nueva Foto de Avance (Cámara)' 
+                              : '📸 Subir Foto de Avance de Obra (Cámara en Vivo)'}
+                          </span>
+                        </button>
 
                         {/* Trazabilidad del Pago de la Obra para el Prestador */}
                         {req.paymentStatus === 'confirmado' ? (
@@ -720,16 +963,33 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                 const isQuoted = req.status === 'cotizado';
                 const isContracted = req.status === 'contratado';
                 const isCompleted = req.status === 'completado';
+                const daysWithoutUpdate = calculateDaysWithoutUpdate(req);
+                const needsAttention = daysWithoutUpdate >= 7 && !isCompleted;
 
                 return (
                   <div
                     key={req.id}
                     className={`bg-white rounded-2xl p-4 border transition-shadow space-y-3 ${
-                      isContracted || isCompleted
+                      needsAttention
+                        ? 'border-amber-400 ring-2 ring-amber-200/70 shadow-sm'
+                        : isContracted || isCompleted
                         ? 'border-emerald-300 shadow-xs ring-1 ring-emerald-100'
                         : 'border-[#e2e8f0] shadow-2xs'
                     }`}
                   >
+                    {/* Indicador de Atención si supera los 7 días */}
+                    {needsAttention && (
+                      <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-semibold">
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>Atención: {daysWithoutUpdate} días sin cambios de estado</span>
+                        </div>
+                        <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded font-bold">
+                          Pendiente
+                        </span>
+                      </div>
+                    )}
+
                     {/* Header of card */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
@@ -818,15 +1078,54 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                           </div>
                         </div>
 
-                        {/* Completed job photo preview if available */}
-                        {req.completedJobPhoto ? (
+                        {/* Alerta de inactividad de más de 15 días en obras contratadas */}
+                        {(() => {
+                          const contractDate = req.updatedAt || req.createdAt;
+                          const daysWithoutMovement = contractDate 
+                            ? Math.floor((Date.now() - new Date(contractDate).getTime()) / (1000 * 60 * 60 * 24))
+                            : 0;
+                          const isInactiveOver15Days = daysWithoutMovement >= 15 && req.status === 'contratado';
+
+                          if (isInactiveOver15Days) {
+                            return (
+                              <div className="mt-1 p-3 rounded-xl bg-amber-50 border-2 border-amber-400 text-amber-950 space-y-2 shadow-2xs">
+                                <div className="flex items-center gap-1.5 font-black text-xs text-amber-900">
+                                  <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+                                  <span>⚠️ Obra sin movimiento ({daysWithoutMovement} días sin nuevo reporte)</span>
+                                </div>
+                                <p className="text-[11px] text-amber-900 leading-snug">
+                                  Esta obra asignada supera los 15 días en curso. Para garantizar la trazabilidad al cliente y auditoría, <strong>el sistema exige tomar y subir una foto de avance real con la cámara</strong>.
+                                </p>
+                                {onUploadJobPhoto && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setUploadingForReq(req);
+                                      setPhotoUrlInput('');
+                                      setPhotoCommentInput('');
+                                      setCameraError(null);
+                                    }}
+                                    className="w-full py-2 px-3 rounded-lg bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                                  >
+                                    <Camera className="w-3.5 h-3.5 text-white" />
+                                    <span>Tomar Foto de Avance con Cámara Ahora (Requerido)</span>
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+
+                        {/* Completed or progress job photo preview if available */}
+                        {req.completedJobPhoto && (
                           <div className="mt-1 bg-white p-2.5 rounded-xl border border-emerald-200 space-y-2">
                             <div className="flex items-center justify-between text-[11px] font-bold text-emerald-900">
                               <span className="flex items-center gap-1">
                                 <Check className="w-3.5 h-3.5 text-emerald-700" />
-                                Foto Certificada del Trabajo Realizado
+                                Foto Certificada de Avance / Trabajo Realizado
                               </span>
-                              <span className="text-[10px] text-emerald-700">Subida en perfil</span>
+                              <span className="text-[10px] text-emerald-700 font-semibold">Trazabilidad App</span>
                             </div>
                             <div
                               onClick={() => setSelectedPhotoLightbox(req.completedJobPhoto || null)}
@@ -835,7 +1134,7 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                             >
                               <img
                                 src={req.completedJobPhoto}
-                                alt="Foto de la obra finalizada"
+                                alt="Foto de la obra"
                                 className="w-full h-40 object-cover group-hover:scale-102 transition-transform duration-200"
                                 onError={(e) => {
                                   (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80';
@@ -851,23 +1150,25 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
                               </p>
                             )}
                           </div>
-                        ) : (
-                          onUploadJobPhoto && (
-                            <div className="pt-1">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setUploadingForReq(req);
-                                  setPhotoUrlInput('');
-                                  setPhotoCommentInput('');
-                                }}
-                                className="w-full h-9 rounded-xl bg-[#0f2942] text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[#001428] active:scale-98 transition-all cursor-pointer shadow-xs"
-                              >
-                                <Camera className="w-3.5 h-3.5 text-[#ffdbcb]" />
-                                <span>Subir Foto del Trabajo Realizado (Habilitado)</span>
-                              </button>
-                            </div>
-                          )
+                        )}
+
+                        {/* Botón para subir o actualizar fotos de avances de obra en cualquier momento */}
+                        {onUploadJobPhoto && (
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setUploadingForReq(req);
+                                setPhotoUrlInput('');
+                                setPhotoCommentInput('');
+                                setCameraError(null);
+                              }}
+                              className="w-full h-9 rounded-xl bg-[#0f2942] text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[#001428] active:scale-98 transition-all cursor-pointer shadow-xs"
+                            >
+                              <Camera className="w-3.5 h-3.5 text-[#ffdbcb]" />
+                              <span>{req.completedJobPhoto ? '📸 Actualizar / Tomar Nueva Foto de Avance (Cámara)' : '📸 Tomar Foto de Avance de Obra (Cámara en Vivo)'}</span>
+                            </button>
+                          </div>
                         )}
                         {/* Trazabilidad del Pago de la Obra */}
                         {req.paymentStatus === 'confirmado' ? (
@@ -1318,53 +1619,107 @@ export const SolicitudesScreen: React.FC<SolicitudesScreenProps> = ({
 
               <div>
                 <label className="text-xs font-bold text-[#001428] block mb-1">
-                  Foto de la obra o reparación *
+                  Foto de Avance o Trabajo Realizado * (Solo Cámara en Vivo)
                 </label>
-                <div className="flex flex-col sm:flex-row items-center gap-3">
-                  <label className="flex-1 w-full flex flex-col items-center justify-center p-3 border-2 border-dashed border-[#9e4300]/40 rounded-xl bg-white hover:bg-orange-50/40 cursor-pointer transition-colors">
-                    <ImageIcon className="w-6 h-6 text-[#9e4300] mb-1" />
-                    <span className="text-xs font-semibold text-[#001428]">
-                      {isProcessingUpload ? 'Cargando foto...' : 'Seleccionar desde galería'}
-                    </span>
-                    <span className="text-[10px] text-[#74777e]">
-                      JPG, PNG o WebP
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileChange}
-                      className="hidden"
-                    />
-                  </label>
+                <p className="text-[11px] text-[#74777e] mb-2">
+                  Por normas de certificación oficial y seguridad de las obras, <strong>no se admiten fotos guardadas en galería</strong>. Debés sacar la foto en tiempo real en el lugar de trabajo.
+                </p>
 
-                  {photoUrlInput && (
-                    <div className="w-20 h-20 rounded-xl overflow-hidden border border-[#9e4300] shrink-0 bg-black">
-                      <img 
-                        src={photoUrlInput} 
-                        alt="Vista previa" 
-                        className="w-full h-full object-cover" 
+                {cameraError && (
+                  <div className="mb-3 p-2.5 rounded-xl bg-red-50 border border-red-300 text-red-900 text-xs font-bold flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <span>{cameraError}</span>
+                  </div>
+                )}
+
+                {/* Viewfinder si la cámara en vivo está activa */}
+                {isLiveCameraActive ? (
+                  <div className="space-y-2 bg-black rounded-2xl p-2 overflow-hidden border border-[#9e4300]">
+                    <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-neutral-900 flex items-center justify-center">
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover"
                       />
+                      <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black tracking-widest flex items-center gap-1 animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-white" /> EN VIVO
+                      </span>
                     </div>
-                  )}
-                </div>
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={stopLiveCamera}
+                        className="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-semibold cursor-pointer"
+                      >
+                        Cancelar Cámara
+                      </button>
+                      <button
+                        type="button"
+                        onClick={captureLivePhoto}
+                        className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-md"
+                      >
+                        <Camera className="w-4 h-4 text-white" />
+                        <span>Capturar Foto Ahora</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {/* Botón para iniciar visor de cámara directa */}
+                      <button
+                        type="button"
+                        onClick={startLiveCamera}
+                        className="p-3 border-2 border-[#9e4300] bg-orange-50/60 hover:bg-orange-100/80 rounded-xl text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-1 group shadow-2xs"
+                      >
+                        <Camera className="w-6 h-6 text-[#9e4300] group-hover:scale-110 transition-transform" />
+                        <span className="text-xs font-bold text-[#001428]">Abrir Visor de Cámara</span>
+                        <span className="text-[10px] text-gray-500">Capturar directamente en la app</span>
+                      </button>
 
-                <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[10px] text-[#74777e]">O elegir foto de prueba:</span>
-                  <button
-                    type="button"
-                    onClick={() => setPhotoUrlInput('https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80')}
-                    className="text-[10px] bg-white border border-[#c3c6ce] px-2 py-0.5 rounded-md hover:bg-gray-50 text-[#001428]"
-                  >
-                    Plomería
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPhotoUrlInput('https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=600&q=80')}
-                    className="text-[10px] bg-white border border-[#c3c6ce] px-2 py-0.5 rounded-md hover:bg-gray-50 text-[#001428]"
-                  >
-                    Construcción
-                  </button>
-                </div>
+                      {/* Input directo a cámara del dispositivo (capture="environment") */}
+                      <label className="p-3 border-2 border-dashed border-[#9e4300]/50 hover:border-[#9e4300] bg-white hover:bg-orange-50/30 rounded-xl text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-1 group shadow-2xs">
+                        <Camera className="w-6 h-6 text-[#9e4300] group-hover:scale-110 transition-transform" />
+                        <span className="text-xs font-bold text-[#001428]">
+                          {isProcessingUpload ? 'Procesando captura...' : 'Sacar Foto con el Celular'}
+                        </span>
+                        <span className="text-[10px] text-emerald-700 font-bold">
+                          Abre la cámara trasera automáticamente
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={handleFileChange}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+
+                    {photoUrlInput && (
+                      <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-300 flex items-center gap-3">
+                        <div className="w-16 h-16 rounded-lg overflow-hidden border border-emerald-400 shrink-0 bg-black">
+                          <img 
+                            src={photoUrlInput} 
+                            alt="Foto tomada en vivo" 
+                            className="w-full h-full object-cover" 
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-emerald-950 flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5 text-emerald-700" />
+                            Foto capturada en vivo lista
+                          </p>
+                          <p className="text-[10px] text-emerald-800">
+                            Validación de fecha y hora en tiempo real completada.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>

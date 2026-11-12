@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   Search, 
   Mic, 
@@ -150,6 +150,26 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
   const [isFeaturedModalOpen, setIsFeaturedModalOpen] = useState(false);
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [showAllWorkersManual, setShowAllWorkersManual] = useState(false);
+  const [logoTapCount, setLogoTapCount] = useState(0);
+  const lastLogoTapRef = useRef<number>(0);
+
+  const handleHeroLogoClick = () => {
+    const now = Date.now();
+    if (now - lastLogoTapRef.current < 700) {
+      const next = logoTapCount + 1;
+      if (next >= 5) {
+        setLogoTapCount(0);
+        if (onTriggerAdminUnlock) {
+          onTriggerAdminUnlock();
+        }
+      } else {
+        setLogoTapCount(next);
+      }
+    } else {
+      setLogoTapCount(1);
+    }
+    lastLogoTapRef.current = now;
+  };
 
   // Resolved department name
   const currentDeptObj = neighborhoods.find(n => 
@@ -269,8 +289,12 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
         <div className="relative overflow-hidden bg-gradient-to-br from-[#001428] via-[#0f2942] to-[#1a3856] rounded-2xl p-3 sm:p-4 text-white shadow-md border border-[#1e3e60]">
           <div className="relative z-10 flex flex-row items-center gap-3 sm:gap-4 text-left">
             {/* Very large, eye-catching circular logo */}
-            <div className="relative shrink-0">
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl p-0.5 sm:p-1 bg-gradient-to-tr from-[#ff8843] via-[#ffdbcb] to-[#9e4300] shadow-xl shadow-black/35 transform hover:scale-105 transition-transform duration-200">
+            <div 
+              onClick={handleHeroLogoClick}
+              className="relative shrink-0 cursor-pointer select-none"
+              title="Oficios y Servicios Valle de Lerma"
+            >
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl p-0.5 sm:p-1 bg-gradient-to-tr from-[#ff8843] via-[#ffdbcb] to-[#9e4300] shadow-xl shadow-black/35 transform hover:scale-105 active:scale-95 transition-transform duration-200">
                 <img
                   src={APP_LOGO_URL}
                   alt="Oficios y Servicios Valle de Lerma"

@@ -137,6 +137,30 @@ export const RequestChatModal: React.FC<RequestChatModalProps> = ({
     setIsSending(true);
     setInputText('');
 
+    // Optimistic UI update: mostrar inmediatamente el mensaje en pantalla
+    const optimisticMsg: ChatMessage = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      requestId: request.id,
+      requestTitle: request.title,
+      senderId: currentUserId,
+      senderName: currentUserName,
+      senderRole: currentUserRole,
+      senderAvatar: currentUserAvatar,
+      text,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      securityLogHash: `SEC30D-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      deviceId: getOrCreateDeviceId(),
+      read: true
+    };
+
+    setMessages(prev => {
+      if (prev.some(m => m.id === optimisticMsg.id || (m.text === text && Math.abs(new Date(m.createdAt).getTime() - Date.now()) < 1500))) {
+        return prev;
+      }
+      return [...prev, optimisticMsg];
+    });
+
     try {
       await sendChatMessage({
         requestId: request.id,
@@ -450,37 +474,63 @@ export const RequestChatModal: React.FC<RequestChatModalProps> = ({
         </div>
 
         {/* Respuestas Rápidas Sugeridas */}
-        <div className="px-3 py-1.5 bg-slate-100 border-t border-slate-200 overflow-x-auto flex items-center gap-1.5 shrink-0">
-          <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap flex items-center gap-1">
+        <div className="px-3 py-2 bg-slate-100 border-t border-slate-200 overflow-x-auto flex items-center gap-1.5 shrink-0">
+          <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap flex items-center gap-1 shrink-0">
             <Sparkles className="w-3 h-3 text-amber-500" />
             Sugerencias:
           </span>
           {suggestions.map((sug, idx) => (
-            <button
+            <div
               key={idx}
-              type="button"
-              onClick={() => handleSendMessage(sug)}
-              className="text-[11px] px-2.5 py-1 bg-white hover:bg-slate-200 text-slate-700 rounded-full border border-slate-200 font-medium whitespace-nowrap transition-colors cursor-pointer shrink-0 shadow-2xs"
+              className="inline-flex items-center bg-white hover:bg-slate-50 border border-slate-200 rounded-full text-[11px] font-medium text-slate-700 shadow-2xs overflow-hidden shrink-0 transition-colors"
             >
-              {sug}
-            </button>
+              <button
+                type="button"
+                onClick={() => setInputText(sug)}
+                className="px-2.5 py-1 hover:text-[#9e4300] cursor-pointer"
+                title="Elegir y escribir en el campo de texto"
+              >
+                {sug}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendMessage(sug)}
+                className="px-1.5 py-1 bg-amber-50 hover:bg-[#9e4300] hover:text-white text-[#9e4300] border-l border-slate-200 cursor-pointer transition-colors"
+                title="Enviar esta sugerencia directamente"
+              >
+                <Send className="w-2.5 h-2.5" />
+              </button>
+            </div>
           ))}
         </div>
 
         {/* Input de Mensaje */}
-        <form onSubmit={handleFormSubmit} className="p-3 bg-white border-t border-slate-200 flex items-center gap-2 shrink-0">
+        <form 
+          onSubmit={handleFormSubmit} 
+          className="p-3 bg-white border-t border-slate-200 flex items-center gap-2 shrink-0"
+        >
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage();
+              }
+            }}
             placeholder={`Escribir a ${otherPartyName}...`}
-            className="flex-1 px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#9e4300] focus:bg-white transition-all"
+            className="flex-1 px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#9e4300] focus:bg-white transition-all text-[#001428]"
             disabled={isSending}
           />
           <button
             type="submit"
+            onClick={(e) => {
+              e.preventDefault();
+              handleSendMessage();
+            }}
             disabled={!inputText.trim() || isSending}
-            className="w-10 h-10 bg-[#9e4300] hover:bg-[#853900] disabled:opacity-50 text-white rounded-xl flex items-center justify-center transition-all cursor-pointer shrink-0 shadow-xs active:scale-95"
+            className="w-10 h-10 bg-[#9e4300] hover:bg-[#853900] disabled:opacity-40 text-white rounded-xl flex items-center justify-center transition-all cursor-pointer shrink-0 shadow-xs active:scale-95"
             title="Enviar mensaje en tiempo real"
           >
             <Send className="w-4 h-4" />

@@ -25,12 +25,19 @@ import {
   AlertTriangle,
   Lightbulb,
   Copy,
-  MessageSquare
+  MessageSquare,
+  Wifi,
+  WifiOff,
+  Clock,
+  Sparkles,
+  RefreshCw,
+  Briefcase
 } from 'lucide-react';
 import { UserProfile, Professional, Neighborhood, ServiceRequest, UserFeedback, UsefulPhone } from '../types';
 import { EMERGENCY_NUMBERS } from '../data/mockData';
 import { saveDevicePhone, getOrCreateDeviceId } from '../utils/deviceTracker';
 import { getLocalUserFeedbacks } from '../utils/feedbackService';
+import { getOfflineHiringHistory, formatOfflineSyncTime } from '../utils/offlineStorage';
 
 interface MiCuentaScreenProps {
   userProfile: UserProfile;
@@ -48,6 +55,10 @@ interface MiCuentaScreenProps {
   onTriggerAdminUnlock?: () => void;
   onLockAdmin?: () => void;
   onOpenReclamosModal?: () => void;
+  requests?: ServiceRequest[];
+  isOnline?: boolean;
+  lastSyncedAt?: string;
+  onRetryConnection?: () => void;
 }
 
 const AVATAR_PRESETS = [
@@ -73,11 +84,24 @@ export const MiCuentaScreen: React.FC<MiCuentaScreenProps> = ({
   isDevAdmin = false,
   onTriggerAdminUnlock,
   onLockAdmin,
-  onOpenReclamosModal
+  onOpenReclamosModal,
+  requests = [],
+  isOnline = true,
+  lastSyncedAt,
+  onRetryConnection
 }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedDeviceId, setCopiedDeviceId] = useState(false);
   const [selectedBarrio, setSelectedBarrio] = useState(userProfile.neighborhood);
+
+  // Obtener contrataciones y sincronización offline
+  const offlineHiring = getOfflineHiringHistory(requests);
+  const contractsToDisplay = requests && requests.length > 0
+    ? requests.filter(r => r.status === 'contratado' || r.status === 'completado')
+    : offlineHiring.contracts;
+
+  const effectiveSyncTime = lastSyncedAt || offlineHiring.syncedAt;
+  const formattedSyncTime = formatOfflineSyncTime(effectiveSyncTime);
 
   const deviceId = getOrCreateDeviceId();
   const userFeedbacks = getLocalUserFeedbacks(deviceId);
@@ -164,6 +188,52 @@ export const MiCuentaScreen: React.FC<MiCuentaScreenProps> = ({
 
   return (
     <div className="flex flex-col w-full max-w-xl mx-auto px-4 pt-2 pb-24 space-y-4">
+      {/* Notificación de Modo Sin Conexión / Información Desactualizada */}
+      {!isOnline && (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-50 via-amber-100/70 to-amber-50 border-2 border-amber-400 text-amber-950 space-y-2 shadow-xs animate-in fade-in">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center font-black shadow-xs shrink-0">
+                <WifiOff className="w-4 h-4 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <h3 className="text-xs font-black text-amber-950 uppercase tracking-wide">
+                    Modo Sin Conexión a Internet
+                  </h3>
+                  <span className="text-[9px] font-black bg-amber-600 text-white px-2 py-0.5 rounded-full">
+                    Información Desactualizada
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-900 leading-tight mt-0.5">
+                  Estás viendo tu historial de contrataciones y datos de perfil guardados localmente en este dispositivo.
+                </p>
+              </div>
+            </div>
+
+            {onRetryConnection && (
+              <button
+                type="button"
+                onClick={onRetryConnection}
+                className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-[10px] font-black flex items-center gap-1 cursor-pointer shrink-0 shadow-2xs"
+                title="Comprobar si se restableció la señal de internet"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Reintentar</span>
+              </button>
+            )}
+          </div>
+
+          <div className="p-2 bg-white/90 rounded-xl border border-amber-200/90 flex items-center justify-between text-[10px] font-bold text-amber-900">
+            <span className="flex items-center gap-1">
+              <Clock className="w-3.5 h-3.5 text-amber-700" />
+              <span>Última sincronización guardada: {formattedSyncTime}</span>
+            </span>
+            <span className="text-amber-800 bg-amber-100 px-1.5 py-0.2 rounded">Copia Local Activa</span>
+          </div>
+        </div>
+      )}
+
       {/* Profile Header Card */}
       <div className="bg-white rounded-2xl p-5 border border-[#e2e8f0] shadow-2xs space-y-4">
         <div className="flex items-start justify-between gap-3">
@@ -254,6 +324,138 @@ export const MiCuentaScreen: React.FC<MiCuentaScreenProps> = ({
             ))}
           </select>
         </div>
+
+        {/* Indicador de Resiliencia y Almacenamiento Local Offline */}
+        <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/90 flex items-center justify-between text-[10px] text-slate-600 flex-wrap gap-1">
+          <div className="flex items-center gap-1.5">
+            {isOnline ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            ) : (
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+            )}
+            <span className="font-semibold text-slate-800">
+              {isOnline
+                ? 'Perfil e historial guardados en este teléfono para uso sin conexión'
+                : 'Modo sin internet: Mostrando datos locales guardados'}
+            </span>
+          </div>
+          <span className="text-[10px] text-slate-500">
+            Sync: <strong>{formattedSyncTime}</strong>
+          </span>
+        </div>
+      </div>
+
+      {/* SECCIÓN: HISTORIAL DE CONTRATACIONES Y OBRAS (RESILIENCIA OFFLINE) */}
+      <div className="bg-white rounded-2xl p-4.5 border border-[#e2e8f0] shadow-2xs space-y-3.5">
+        <div className="flex items-center justify-between border-b border-[#f1f5f9] pb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200 font-bold">
+              <Briefcase className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-[#001428]">
+                Historial de Contrataciones y Obras
+              </h2>
+              <p className="text-[11px] text-[#5a5f67]">
+                Servicios contratados y finalizados disponibles con o sin conexión
+              </p>
+            </div>
+          </div>
+
+          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+            {contractsToDisplay.length} {contractsToDisplay.length === 1 ? 'Contrato' : 'Contratos'}
+          </span>
+        </div>
+
+        {/* Notificación si la información está desactualizada por falta de conexión */}
+        {!isOnline && (
+          <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs flex items-center gap-2 shadow-2xs">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <p className="text-[11px] leading-tight">
+              <strong>Atención:</strong> Estás viendo contratos guardados en la memoria de este teléfono. La información puede estar desactualizada hasta que vuelvas a tener señal.
+            </p>
+          </div>
+        )}
+
+        {/* Lista de Contratos */}
+        {contractsToDisplay.length === 0 ? (
+          <div className="p-6 text-center bg-[#f8fafc] rounded-xl border border-gray-100 space-y-1.5">
+            <Briefcase className="w-8 h-8 text-gray-300 mx-auto" />
+            <p className="text-xs font-bold text-gray-700">No hay contrataciones guardadas todavía</p>
+            <p className="text-[11px] text-gray-500 max-w-xs mx-auto">
+              Cuando contrates a un profesional en Solicitudes, los contratos se almacenarán localmente para verlos sin internet.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {contractsToDisplay.map((contract) => (
+              <div 
+                key={contract.id}
+                className="p-3.5 rounded-xl bg-white border border-slate-200 hover:border-emerald-300 transition-all shadow-2xs space-y-2.5"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[9px] font-bold uppercase tracking-wider bg-[#ffdbcb]/70 text-[#9e4300] px-2 py-0.5 rounded">
+                        {contract.trade}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
+                        {contract.contractNumber || 'ORD-VALLE-2026'}
+                      </span>
+                    </div>
+                    <h3 className="text-xs font-bold text-[#001428] mt-1 leading-snug">
+                      {contract.title}
+                    </h3>
+                    <p className="text-[11px] text-[#5a5f67]">
+                      Profesional: <strong>{contract.quotedBy || 'Profesional asignado'}</strong> • {contract.createdAt}
+                    </p>
+                  </div>
+
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1 ${
+                    contract.status === 'completado'
+                      ? 'bg-blue-100 text-blue-900 border border-blue-200'
+                      : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                  }`}>
+                    {contract.status === 'completado' ? (
+                      <>
+                        <Check className="w-3 h-3 text-blue-700" />
+                        <span>Finalizado</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-3 h-3 text-emerald-700" />
+                        <span>En Curso</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+
+                {/* Monto y Cobro */}
+                <div className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded-lg border border-slate-100">
+                  <span className="text-slate-600 text-[11px]">Monto acordado:</span>
+                  <span className="font-black text-[#001428]">
+                    {contract.quoteAmount ? `$ ${contract.quoteAmount.toLocaleString('es-AR')}` : 'A convenir'}
+                  </span>
+                </div>
+
+                {/* Foto de avance certificada si existe */}
+                {contract.completedJobPhoto && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-emerald-800 flex items-center gap-1">
+                      <Camera className="w-3 h-3" />
+                      <span>Foto de obra certificada:</span>
+                    </p>
+                    <img 
+                      src={contract.completedJobPhoto} 
+                      alt="Avance de obra" 
+                      className="w-full h-28 object-cover rounded-lg border border-slate-200 shadow-2xs"
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Atención al Vecino: Reclamos y Sugerencias */}
@@ -499,21 +701,6 @@ export const MiCuentaScreen: React.FC<MiCuentaScreenProps> = ({
           )}
         </button>
       </div>
-
-      {/* Acceso discreto para Jorge Lopez */}
-      {!isDevAdmin && onTriggerAdminUnlock && (
-        <div className="pt-2 pb-6 text-center">
-          <button
-            type="button"
-            onClick={onTriggerAdminUnlock}
-            className="inline-flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-600 transition-colors py-1.5 px-3 rounded-xl hover:bg-gray-100 cursor-pointer"
-            title="Acceso exclusivo administración"
-          >
-            <Lock className="w-3 h-3 text-[#9e4300]" />
-            <span>Acceso Administración (Jorge Lopez)</span>
-          </button>
-        </div>
-      )}
 
       {/* Modal para Editar Datos Personales del Vecino */}
       {isEditModalOpen && (

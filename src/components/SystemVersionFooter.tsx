@@ -10,21 +10,24 @@ import {
   Info,
   Heart,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  BookOpen
 } from 'lucide-react';
 import { getOrCreateDeviceId, getStoredDevicePhone, saveDevicePhone } from '../utils/deviceTracker';
 
 interface SystemVersionFooterProps {
   onOpenAdminAuth?: () => void;
   isDevAdmin?: boolean;
+  onOpenManualesModal?: () => void;
 }
 
-export const APP_VERSION = '2.11.0';
-export const APP_LAST_MODIFIED = '11 de Noviembre de 2026 - 14:45 hs';
+export const APP_VERSION = '2.17.0';
+export const APP_LAST_MODIFIED = '12 de Noviembre de 2026 - 05:15 hs';
 
 export const SystemVersionFooter: React.FC<SystemVersionFooterProps> = ({
   onOpenAdminAuth,
-  isDevAdmin
+  isDevAdmin,
+  onOpenManualesModal
 }) => {
   const [deviceId, setDeviceId] = useState('');
   const [phone, setPhone] = useState('');
@@ -196,6 +199,18 @@ export const SystemVersionFooter: React.FC<SystemVersionFooterProps> = ({
           </div>
         </div>
 
+        {/* Botón de Guiones y Manuales Ilustrados Oficiales */}
+        {onOpenManualesModal && (
+          <button
+            type="button"
+            onClick={onOpenManualesModal}
+            className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#001428] via-[#09223a] to-[#122e4d] hover:from-[#09223a] hover:to-[#001428] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-all active:scale-98"
+          >
+            <BookOpen className="w-4 h-4 text-amber-300" />
+            <span>Ver Manuales Ilustrados y Guiones Oficiales</span>
+          </button>
+        )}
+
         {/* Botón de despliegue de detalles técnicos */}
         <button
           type="button"
@@ -214,19 +229,6 @@ export const SystemVersionFooter: React.FC<SystemVersionFooterProps> = ({
             <p className="text-gray-500">
               💻 <strong>Equipo de Desarrollo:</strong> Desarrollado y administrado por <strong>Jorge Lopez</strong> (Tel: 3875286914) y <strong>Daniel Dohrman</strong> para los vecinos del Valle de Lerma.
             </p>
-          </div>
-        )}
-
-        {/* Acceso para Administrador si no está activado aún */}
-        {!isDevAdmin && onOpenAdminAuth && (
-          <div className="text-center pt-1">
-            <button
-              type="button"
-              onClick={onOpenAdminAuth}
-              className="text-[10px] text-gray-400 hover:text-[#9e4300] transition-colors cursor-pointer"
-            >
-              Acceso Administrador (Jorge Lopez)
-            </button>
           </div>
         )}
       </div>

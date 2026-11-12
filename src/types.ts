@@ -144,6 +144,7 @@ export interface ServiceRequest {
   neighborhood: string;
   description: string;
   createdAt: string;
+  updatedAt?: string;
   status: 'cotizado' | 'en_espera' | 'contratado' | 'completado';
   quotedBy?: string;
   quotedByAvatar?: string;
